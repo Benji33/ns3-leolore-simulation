@@ -3,6 +3,7 @@
 
 #include "ns3/object.h"
 #include <string>
+#include "ns3/routing-manager.h"
 
 namespace ns3
 {
@@ -12,6 +13,7 @@ namespace leo
 class ConstellationNodeData : public Object {
 public:
 ConstellationNodeData() {}
+//ConstellationNodeData() : m_switchingTable() {}
 
     void SetSourceId(std::string id) { m_sourceId = id; }
     std::string GetSourceId() const { return m_sourceId; }
@@ -25,6 +27,9 @@ ConstellationNodeData() {}
     void SetOrbit(uint8_t orbit) { m_orbit = orbit; }
     uint8_t GetOrbit() const { return m_orbit; }
 
+    //void SetSwitchingTable(const SwitchingTable& table) {m_switchingTable = table; }
+    //const SwitchingTable& GetSwitchingTable() const { return m_switchingTable; }
+
     static TypeId GetTypeId() {
         static TypeId tid = TypeId("ConstellationNodeData")
             .SetParent<Object>()
@@ -37,6 +42,7 @@ private:
     std::string m_type;
     std::string m_town;
     uint8_t m_orbit;
+    //SwitchingTable m_switchingTable;
 };
 
 } // namespace leo

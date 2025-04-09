@@ -6,13 +6,21 @@
 #include "ns3/file-reader.h"
 #include "ns3/custom-node-data.h"
 #include "ns3/netanim-module.h"
-#include "ns3/mobility-module.h"
+#include "ns3/ip-assignment.h"
+#include "ns3/routing-manager.h"
+#include "ns3/constant-position-mobility-model.h"
+#include <ctime>
+#include <chrono>
+#include <iomanip>
 
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("LeoLoreSimulator");
 
 int main(int argc, char *argv[]) {
+    std::ofstream nullStream("/dev/null");
+    std::streambuf* oldCerrStreamBuf = std::cerr.rdbuf(nullStream.rdbuf());
+
     LogComponentEnable("LeoLoreSimulator", LOG_LEVEL_INFO);
     LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
     LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
@@ -23,9 +31,19 @@ int main(int argc, char *argv[]) {
     // Step 1: Parse in graph JSON file
     ns3::leo::FileReader reader;
 
+    //uint64_t simulationStart = 1742599254; // 2025-03-21T11:20:54
+    std::tm tm = {};
+    std::istringstream ss("2025-03-21T11:20:54");
+    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
+    std::time_t t = timegm(&tm);
+    auto simulationStart = std::chrono::system_clock::from_time_t(t);
+
     //TODO: Get JSON file path through command line argument
     reader.readGraphFromJson("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/leo_constellation.json");
-    reader.printGraph();
+    //reader.printGraph();
+
+    reader.readSwitchingTableFromJson("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/switching_tables.json");
+    //reader.printSwitchtingTables();
 
     // Step 2: Create containers & nodes for ns-3 nodes
     NodeContainer groundStations;
@@ -77,75 +95,52 @@ int main(int argc, char *argv[]) {
 
     // Step 4: Set up point-to-point links (edges)
     // Step 5: Set IP addresses
-    PointToPointHelper p2p;
-    p2p.SetDeviceAttribute("DataRate", StringValue("10Mbps"));
-    p2p.SetChannelAttribute("Delay", StringValue("2ms"));
-
-    Ipv4AddressHelper ipv4;
-    int maj_subnet_counter = 1;
-    int min_subnet_counter = 0;
+    leo::IpAssignmentHelper ipAssignmentHelper;
 
     NS_LOG_INFO("Number of edges: " << reader.GetEdges().size());
 
-    for (const auto &edge : reader.GetEdges()) {
-        if (sourceIdNsNodeMap.find(edge.source) == sourceIdNsNodeMap.end()) {
-            printf("Source node not found: %s\n", edge.source.c_str());
-            NS_LOG_ERROR("Source node not found: " << edge.source);
-            continue;
-        }
-        if (sourceIdNsNodeMap.find(edge.target) == sourceIdNsNodeMap.end()) {
-            printf("Target node not found: %s\n", edge.target.c_str());
-            NS_LOG_ERROR("Target node not found: " << edge.target);
-            continue;
-        }
-        auto sourceNode = sourceIdNsNodeMap[edge.source];
-        auto targetNode = sourceIdNsNodeMap[edge.target];
+    // Step 5: Assign IP addresses and collect IP map
+    std::unordered_map<std::string, Ipv4Address> nodeIdToIpMap =
+    ipAssignmentHelper.AssignIpAddresses(reader.GetEdges(), sourceIdNsNodeMap);
 
-        // Create a point-to-point link between the source and target nodes
-        NetDeviceContainer devices = p2p.Install(sourceNode, targetNode);
-
-        // Assign IP addresses to the link
-        if (maj_subnet_counter > 255) {
-            NS_LOG_ERROR("Exceeded maximum number of subnets");
-            break;
-        }
-        std::ostringstream subnetStream;
-        subnetStream << "10." << maj_subnet_counter << "." << min_subnet_counter << ".0";
-        std::string subnet = subnetStream.str();
-
-        ipv4.SetBase(subnet.c_str(), "255.255.255.0");
-        ipv4.Assign(devices);
-
-        // Increment subnet counters
-        min_subnet_counter++;
-        if (min_subnet_counter == 255) {
-            maj_subnet_counter++;
-            min_subnet_counter = 0;
-        }
+    NS_LOG_INFO("Printing nodeIdToIpMap:");
+    for (const auto& pair : nodeIdToIpMap) {
+        NS_LOG_INFO("Node ID: " << pair.first << ", IP Address: " << pair.second);
     }
+
+    // Resolve Switching tables = map node ids to ip addresses
+    leo::RoutingManager routingManager;
+    std::vector<leo::SwitchingTable> resolvedTables = routingManager.ResolveSwitchingTables(reader.GetRawSwitchingTables(),
+                                                                                            nodeIdToIpMap,
+                                                                                            simulationStart);
+
+    // Print one of the resolvedTables
+    /*if (!resolvedTables.empty()) {
+        const leo::SwitchingTable& table = resolvedTables[0]; // Access the first table
+        NS_LOG_INFO("Switching Table for Node IP: " << table.node_ip);
+        NS_LOG_INFO("Valid From: " << table.valid_from.GetSeconds() << " seconds");
+        NS_LOG_INFO("Valid Until: " << table.valid_until.GetSeconds() << " seconds");
+        NS_LOG_INFO("Routing Table:");
+        for (const auto& entry : table.ip_routing_table) {
+            NS_LOG_INFO("  Destination: " << entry.first << ", Next Hop: " << entry.second);
+        }
+    } else {
+        NS_LOG_WARN("No resolved switching tables available.");
+    }*/
 
     Ptr<Node> gs1 = sourceIdNsNodeMap[gs1Id];
     Ptr<Node> gs2 = sourceIdNsNodeMap[gs2Id];
 
-    // Step 6: Retrieve IP address of gs2
-    Ptr<Ipv4> ipv4Gs2 = gs2->GetObject<Ipv4>();
-    Ipv4Address gs2Address;
-    for (uint32_t i = 0; i < ipv4Gs2->GetNInterfaces(); ++i) {
-        for (uint32_t j = 0; j < ipv4Gs2->GetNAddresses(i); ++j) {
-            Ipv4Address addr = ipv4Gs2->GetAddress(i, j).GetLocal();
-            if (addr != Ipv4Address::GetLoopback()) {
-                gs2Address = addr;
-                break;
-            }
-        }
-    }
+    // Step 6: Retrieve IP address of gs);
+    Ipv4Address gs1Address =  nodeIdToIpMap[gs1Id];
+    Ipv4Address gs2Address =  nodeIdToIpMap[gs2Id];
 
     // Retrieve nodes for gs1 and gs2
     const auto* gs1Node = dynamic_cast<const leo::FileReader::GroundStationNode*>(reader.GetNodeMap().at(gs1Id));
     const auto* gs2Node = dynamic_cast<const leo::FileReader::GroundStationNode*>(reader.GetNodeMap().at(gs2Id));
 
     if (gs1Node) {
-        NS_LOG_INFO("GS1 '" << gs1Id << "', Town: " << gs1Node->town);
+        NS_LOG_INFO("GS1 '" << gs1Id << "', Town: " << gs1Node->town <<"' IP Address: " << gs1Address);
     } else {
         NS_LOG_ERROR("Failed to retrieve town for GS1 '" << gs1Id << "'");
     }
@@ -155,7 +150,6 @@ int main(int argc, char *argv[]) {
     } else {
         NS_LOG_ERROR("Failed to retrieve town for GS2 '" << gs2Id << "'");
     }
-    NS_LOG_INFO("GS2 '"<< gs2Id <<"' IP Address: " << gs2Address);
 
     // Step 7: Install a UDP server on gs2
     uint16_t port = 9;
@@ -177,12 +171,21 @@ int main(int argc, char *argv[]) {
     // Step 9: Set up global routing for now
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
+    // To get rid of mobility warnings for animator
+    for (const auto& node_ptr : reader.GetNodes()) {
+        Ptr<Node> node = sourceIdNsNodeMap[node_ptr->id];
+        if (!node->GetObject<MobilityModel>()) {
+            Ptr<ConstantPositionMobilityModel> mobility = CreateObject<ConstantPositionMobilityModel>();
+            node->AggregateObject(mobility);
+        }
+    }
     // Set up animation for nodes
     AnimationInterface anim("leolore-simulator.xml");
     anim.EnablePacketMetadata(true);
 
     for (const auto& node_ptr : reader.GetNodes()) {
         Ptr<Node> node = sourceIdNsNodeMap[node_ptr->id];
+
         anim.UpdateNodeDescription(node->GetId(), node_ptr->id);
         anim.SetConstantPosition(node, node_ptr->position.first, node_ptr->position.second);
 
@@ -198,5 +201,6 @@ int main(int argc, char *argv[]) {
     Simulator::Run();
     Simulator::Destroy();
 
+    std::cerr.rdbuf(oldCerrStreamBuf);
     return 0;
 }

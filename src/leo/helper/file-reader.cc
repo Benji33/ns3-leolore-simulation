@@ -83,5 +83,53 @@ void FileReader::printGraph() const {
                   << ", Weight: " << edge.weight << std::endl;
     }
 }
+void FileReader::readSwitchingTableFromJson(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return;
+    }
+
+    json j;
+    file >> j;
+
+    // Parse switching tables
+    for (auto& table_data : j) {
+        RawSwitchingTable table;
+        table.node = table_data["node"];
+        table.valid_from = table_data["valid_from"];
+        table.valid_until = table_data["valid_until"];
+
+        for (auto& entry : table_data["table_data"].items()) {
+            table.table_data[entry.key()] = entry.value();
+        }
+
+        raw_switching_tables.push_back(table);
+    }
+
+}
+void FileReader::printSwitchtingTables() const {
+    if (raw_switching_tables.empty()) {
+        std::cout << "No switching tables available." << std::endl;
+        return;
+    }
+
+    std::cout << "Switching Tables:" << std::endl;
+    for (const auto& table : raw_switching_tables) {
+        std::cout << "Node: " << table.node << std::endl;
+        std::cout << "Valid From: " << table.valid_from << std::endl;
+        std::cout << "Valid Until: " << table.valid_until << std::endl;
+        std::cout << "Table Data:" << std::endl;
+
+        for (const auto& entry : table.table_data) {
+            std::cout << "  Destination: " << entry.first
+                      << ", Next Hop: " << entry.second << std::endl;
+        }
+
+        std::cout << "---------------------------------" << std::endl;
+    }
+}
+
+
 } // namespace leo
 } // namespace ns3
