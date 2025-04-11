@@ -1,13 +1,36 @@
 #include "file-reader.h" // Include the header file
 #include <iostream>
 #include <fstream>
+#include "ns3/log.h"
 #include <nlohmann/json.hpp> // Include the JSON library
 
 namespace ns3
 {
 namespace leo
 {
+
+NS_LOG_COMPONENT_DEFINE("FileReader");
+
 using json = nlohmann::json;
+
+std::chrono::_V2::system_clock::time_point FileReader::parseTimestampToTimePoint(const std::string& timestampStr) {
+    std::tm tm = {};
+    std::istringstream ss(timestampStr);
+    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
+    if (ss.fail()) {
+        throw std::runtime_error("Failed to parse timestamp: " + timestampStr);
+    }
+
+    auto timeT = std::mktime(&tm);
+    return std::chrono::_V2::system_clock::from_time_t(timeT);
+}
+
+double secondsSinceStart(const std::tm& t, const std::tm& start) {
+    auto time1 = std::mktime(const_cast<std::tm*>(&t));
+    auto time0 = std::mktime(const_cast<std::tm*>(&start));
+    return std::difftime(time1, time0);
+}
+
 
 // Implementation of readGraphFromJson
 void FileReader::readGraphFromJson(const std::string& filename) {
@@ -55,7 +78,72 @@ void FileReader::readGraphFromJson(const std::string& filename) {
     }
 }
 
-// Implementation of printGraph
+void FileReader::readSwitchingTableFromJson(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return;
+    }
+
+    json j;
+    file >> j;
+
+    // Parse switching tables
+    for (auto& table_data : j) {
+        RawSwitchingTable table;
+        table.node = table_data["node"];
+        table.valid_from = table_data["valid_from"];
+        table.valid_until = table_data["valid_until"];
+
+        for (auto& entry : table_data["table_data"].items()) {
+            table.table_data[entry.key()] = entry.value();
+        }
+
+        raw_switching_tables.push_back(table);
+    }
+
+}
+void FileReader::ReadConstellationEvents(const std::string& filename, std::chrono::_V2::system_clock::time_point& simulationStartTime) {
+
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        NS_LOG_ERROR("Failed to open " << filename);
+        return;
+    }
+
+    json data;
+    file >> data;
+
+    for (const auto& timeGroup : data) {
+        // Parse the timestamp into a time_point
+        std::string ts = timeGroup["timestamp"];
+        auto eventTime = parseTimestampToTimePoint(ts);
+
+        // Calculate the simulation time as seconds since the start time
+        auto simTime = std::chrono::duration<double>(eventTime - simulationStartTime).count();
+
+        for (const auto& e : timeGroup["events"]) {
+            ConstellationEvent event;
+            std::string actionStr = e["action"];
+
+            if (actionStr == "LINK_UP") {
+                event.action = FileReader::ConstellationEvent::Action::LINK_UP;
+            } else if (actionStr == "LINK_DOWN") {
+                event.action = FileReader::ConstellationEvent::Action::LINK_DOWN;
+            } else {
+                NS_LOG_WARN("Unknown action: " << actionStr);
+                continue;
+            }
+
+            event.from = e["from"];
+            event.to = e["to"];
+            event.weight = e["weight"];
+
+            constellation_events_map[simTime].push_back(event);
+        }
+    }
+}
+
 void FileReader::printGraph() const {
     std::cout << "Start Time: " << starttime << std::endl;
     std::cout << "End Time: " << endtime << std::endl;
@@ -83,31 +171,7 @@ void FileReader::printGraph() const {
                   << ", Weight: " << edge.weight << std::endl;
     }
 }
-void FileReader::readSwitchingTableFromJson(const std::string& filename) {
-    std::ifstream file(filename);
-    if (!file.is_open()) {
-        std::cerr << "Error: Could not open file " << filename << std::endl;
-        return;
-    }
 
-    json j;
-    file >> j;
-
-    // Parse switching tables
-    for (auto& table_data : j) {
-        RawSwitchingTable table;
-        table.node = table_data["node"];
-        table.valid_from = table_data["valid_from"];
-        table.valid_until = table_data["valid_until"];
-
-        for (auto& entry : table_data["table_data"].items()) {
-            table.table_data[entry.key()] = entry.value();
-        }
-
-        raw_switching_tables.push_back(table);
-    }
-
-}
 void FileReader::printSwitchtingTables() const {
     if (raw_switching_tables.empty()) {
         std::cout << "No switching tables available." << std::endl;

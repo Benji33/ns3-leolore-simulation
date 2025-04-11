@@ -2,6 +2,8 @@
 #define FILEREADER_H
 
 #include <string>
+#include <chrono>
+#include <ctime>
 #include <vector>
 #include <unordered_map>
 #include <memory>
@@ -48,16 +50,29 @@ public:
         std::unordered_map<std::string, std::string> table_data;
     };
 
+    struct ConstellationEvent {
+        enum Action { LINK_UP, LINK_DOWN };
+        std::string from;
+        std::string to;
+        double weight;
+        Action action;
+    };
+
     // Constructor
     FileReader() = default;
 
-    // Method to read the graph from a JSON file
+    //Helper
+    std::chrono::_V2::system_clock::time_point parseTimestampToTimePoint(const std::string& timestampStr);
+    double secondsSinceStart(const std::tm& t, const std::tm& start);
+
+    //Graph
     void readGraphFromJson(const std::string& filename);
 
-    // Method to print the graph for debugging or verification
-    void printGraph() const;
-
+    // Switching tables
     void readSwitchingTableFromJson(const std::string& filename);
+
+    // Events
+    void ReadConstellationEvents(const std::string& filename, std::chrono::_V2::system_clock::time_point& startTimeStr);
 
     // Getters for private members
     const std::vector<std::unique_ptr<Node>>& GetNodes() const { return nodes; }
@@ -65,12 +80,16 @@ public:
     const std::unordered_map<std::string, Node*>& GetNodeMap() const { return node_map; }
     std::vector<RawSwitchingTable>& GetRawSwitchingTables() { return raw_switching_tables; }
 
+    // Visulization
+    void printGraph() const;
     void printSwitchtingTables() const;
+
 private:
     // Vectors to hold nodes and edges
     std::vector<std::unique_ptr<Node>> nodes;
     std::vector<Edge> edges;
     std::vector<RawSwitchingTable> raw_switching_tables;
+    std::map<double, std::vector<ConstellationEvent>> constellation_events_map;
 
     // Map for quick node access by ID
     std::unordered_map<std::string, Node*> node_map;

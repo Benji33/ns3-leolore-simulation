@@ -49,6 +49,7 @@ int main(int argc, char *argv[]) {
     reader.readSwitchingTableFromJson("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/switching_tables.json");
     //reader.printSwitchtingTables();
 
+    reader.ReadConstellationEvents("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/events.json", simulationStart);
     // Step 2: Create containers & nodes for ns-3 nodes
     NodeContainer groundStations;
     NodeContainer satellites;
