@@ -9,6 +9,7 @@
 #include "ns3/nstime.h"
 #include "file-reader.h"
 #include "ipv4-address-hash.h"
+#include "ip-assignment.h"
 #include <chrono>
 #include <iomanip>
 #include <ctime>
@@ -52,6 +53,7 @@ public:
     void ResolveSwitchingTables(
         const std::vector<FileReader::RawSwitchingTable>& raw_tables,
         const std::unordered_map<std::string, std::vector<Ipv4Address>>& nodeIdToIpMap,
+        leo::IpAssignmentHelper ipAssignmentHelper,
         const std::chrono::system_clock::time_point& simulationStart);
 
     void AttachSwitchingTablesToNodes(

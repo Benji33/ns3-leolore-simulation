@@ -38,6 +38,7 @@ Time ParseTimeString(const std::string& timeStr, const std::chrono::system_clock
 void RoutingManager::ResolveSwitchingTables(
     const std::vector<FileReader::RawSwitchingTable>& raw_tables,
     const std::unordered_map<std::string, std::vector<Ipv4Address>>& nodeIdToIpMap,
+    leo::IpAssignmentHelper ipAssignmentHelper,
     const std::chrono::system_clock::time_point& simulationStart) {
 
     for (const auto& table : raw_tables) {
@@ -58,9 +59,24 @@ void RoutingManager::ResolveSwitchingTables(
 
             // Use the first IP for now
             Ipv4Address destIp = destIt->second.front();
-            Ipv4Address nextHopIp = nextHopIt->second.front();
-            routing_table[destIp] = nextHopIp;
 
+            const std::string& sourceNodeId = table.node; // Current node ID
+            const std::string& destNodeId = route.first;  // Destination node ID
+            const std::string& nextHopNodeId = route.second;
+
+            auto ipPair = ipAssignmentHelper.GetIpPair(sourceNodeId, nextHopNodeId);
+            if (ipPair.first == Ipv4Address() || ipPair.second == Ipv4Address()) {
+                NS_LOG_WARN("No IP pair found for source: " << sourceNodeId << " and next hop: " << nextHopNodeId);
+                continue;
+            }
+
+            // Use the source IP as the destination IP and the target IP as the next-hop IP
+            //Ipv4Address destIp = ipPair.first;
+            Ipv4Address nextHopIp = ipPair.second;
+
+            // Add the resolved route to the routing table
+            routing_table[destIp] = nextHopIp;
+            NS_LOG_INFO("Resolved route: " << destIp << " -> " << nextHopIp);
         }
 
         // Create the SwitchingTable object using the constructor

@@ -3,6 +3,7 @@
 #include "ns3/point-to-point-module.h"
 #include "ns3/string.h"
 #include "ns3/log.h"
+#include "ns3/custom-ipv4-l3-protocol.h"
 
 namespace ns3 {
 namespace leo {
@@ -51,7 +52,7 @@ std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::As
         p2p.SetDeviceAttribute("DataRate", StringValue("10Gbps"));
 
         // Create a point-to-point link between the source and target nodes
-        NS_LOG_INFO("Creating link between " << edge.source << " and " << edge.target);
+        //NS_LOG_INFO("Creating link between " << edge.source << " and " << edge.target);
         NetDeviceContainer devices = p2p.Install(sourceNode, targetNode);
 
         // Assign IP addresses to the link
@@ -65,6 +66,29 @@ std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::As
 
         ipv4.SetBase(subnetStream.str().c_str(), "255.255.255.0");
         Ipv4InterfaceContainer interfaces = ipv4.Assign(devices);
+        /*if ((edge.source.compare("IRIDIUM 145") == 0) || (edge.target.compare("IRIDIUM 145") == 0)  ||
+            (edge.source.compare("632430d9e1196") == 0) || (edge.target.compare("632430d9e1196") == 0) )
+        {
+            NS_LOG_INFO("Assigned IP addresses for link:");
+            NS_LOG_INFO("  Source (" << edge.source << "): " << interfaces.GetAddress(0));
+            NS_LOG_INFO("  Target (" << edge.target << "): " << interfaces.GetAddress(1));
+        }*/
+        // Store the assigned IP addresses of the connection
+        m_nodeToNodeIpMap[edge.source][edge.target] = {interfaces.GetAddress(0), interfaces.GetAddress(1)};
+        m_nodeToNodeIpMap[edge.target][edge.source] = {interfaces.GetAddress(1), interfaces.GetAddress(0)};
+
+        // Notify the routing protocols on Source & Target nodes to update their next hop output device mapping
+        /*Ptr<Ipv4> ipv4Source = sourceNode->GetObject<Ipv4>();
+        Ptr<leo::CustomRoutingProtocol> routingSource = DynamicCast<leo::CustomRoutingProtocol>(ipv4Source->GetRoutingProtocol());
+        if (routingSource) {
+            routingSource->AddNextHop(interfaces.GetAddress(1), ipv4Source->GetInterfaceForDevice(devices.Get(0)));
+        }
+
+        Ptr<Ipv4> ipv4Target = targetNode->GetObject<Ipv4>();
+        Ptr<leo::CustomRoutingProtocol> routingTarget = DynamicCast<leo::CustomRoutingProtocol>(ipv4Target->GetRoutingProtocol());
+        if (routingTarget) {
+            routingTarget->AddNextHop(interfaces.GetAddress(0), ipv4Target->GetInterfaceForDevice(devices.Get(1)));
+        }*/
         /*if (edge.source == "IRIDIUM 145" || edge.target == "IRIDIUM 145" ||
             edge.source == "632430d9e1196" || edge.target == "632430d9e1196")
         {
@@ -88,6 +112,26 @@ std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::As
     }
 
     return nodeIdToIpMap;
+}
+std::pair<Ipv4Address, Ipv4Address> IpAssignmentHelper::GetIpPair(const std::string& sourceId, const std::string& targetId) const {
+    auto sourceIt = m_nodeToNodeIpMap.find(sourceId);
+    if (sourceIt != m_nodeToNodeIpMap.end()) {
+        auto targetIt = sourceIt->second.find(targetId);
+        if (targetIt != sourceIt->second.end()) {
+            return targetIt->second;
+        }
+    }
+    NS_LOG_WARN("No IP pair found for source: " << sourceId << " and target: " << targetId);
+    return {Ipv4Address(), Ipv4Address()};
+}
+std::unordered_map<std::string, std::pair<Ipv4Address, Ipv4Address>> IpAssignmentHelper::GetIpMappingsForSource(const std::string& sourceId) const {
+    auto sourceIt = m_nodeToNodeIpMap.find(sourceId);
+    if (sourceIt != m_nodeToNodeIpMap.end()) {
+        return sourceIt->second; // Return all mappings for the source node
+    }
+
+    NS_LOG_WARN("No IP mappings found for source node: " << sourceId);
+    return {}; // Return an empty map if no mappings are found
 }
 
 } // namespace leo

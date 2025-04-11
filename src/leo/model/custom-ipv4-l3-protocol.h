@@ -12,6 +12,7 @@
 #include "ns3/net-device.h"
 #include "ns3/nstime.h"
 #include <map>
+#include "ns3/ip-assignment.h"
 
 namespace ns3 {
 namespace leo {
@@ -38,7 +39,7 @@ public:
                             const LocalDeliverCallback& lcb,
                             const ErrorCallback& ecb) override;
 
-    int32_t CustomRoutingProtocol::GetInterfaceForNextHop(Ipv4Address nextHop);
+    int32_t GetInterfaceForNextHop(Ipv4Address nextHop);
     virtual void NotifyInterfaceUp(uint32_t interface) override;
     virtual void NotifyInterfaceDown(uint32_t interface) override;
     virtual void NotifyAddAddress(uint32_t interface, Ipv4InterfaceAddress address) override;
@@ -48,6 +49,8 @@ public:
 
 
     void SetSwitchingTable(const SwitchingTable &table);
+    void SetNextHopToDeviceMap(leo::IpAssignmentHelper &ipAssignmentHelper);
+    void AddNextHop(Ipv4Address nextHop, uint32_t interface);
 
 private:
     Ptr<Ipv4> m_ipv4; // represents the ipv4 stack on node

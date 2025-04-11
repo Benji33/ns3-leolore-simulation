@@ -98,15 +98,25 @@ int main(int argc, char *argv[]) {
     internetStack.Install(groundStations);
     internetStack.Install(satellites);
 
-    // Step 4: Set up point-to-point links (edges)
-    // Step 5: Set IP addresses
-    leo::IpAssignmentHelper ipAssignmentHelper;
-
-    NS_LOG_INFO("Number of edges: " << reader.GetEdges().size());
+    // Step 4: Attach CustomRoutingProtocol to all nodes
+    // install custom forwarding logic - TODO: extract to populateForwardingTable function
+    std::unordered_map<std::string, Ptr<leo::CustomRoutingProtocol>> customRoutingProtocols;
+    for (const auto& [nodeId, node] : sourceIdNsNodeMap) {
+        Ptr<leo::CustomRoutingProtocol> customRouting = CreateObject<leo::CustomRoutingProtocol>();
+        Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
+        if (ipv4) {
+            customRouting->SetIpv4(ipv4);
+            ipv4->SetRoutingProtocol(customRouting);
+            customRoutingProtocols[nodeId] = customRouting; // Store the protocol for later use
+            // NS_LOG_INFO("Custom routing protocol attached to node " << nodeId);
+        }
+    }
 
     // Step 5: Assign IP addresses and collect IP map
+    leo::IpAssignmentHelper ipAssignmentHelper;
+    NS_LOG_INFO("Number of edges: " << reader.GetEdges().size());
     std::unordered_map<std::string, std::vector<Ipv4Address>> nodeIdToIpMap =
-    ipAssignmentHelper.AssignIpAddresses(reader.GetEdges(), sourceIdNsNodeMap);
+        ipAssignmentHelper.AssignIpAddresses(reader.GetEdges(), sourceIdNsNodeMap);
 
     /*NS_LOG_INFO("Printing nodeIdToIpMap:");
     for (const auto& pair : nodeIdToIpMap) {
@@ -116,13 +126,25 @@ int main(int argc, char *argv[]) {
         }
     }*/
 
-    // Resolve Switching tables = map node ids to ip addresses
+    // Step 6: Resolve Switching tables = map node ids to IP addresses
     leo::RoutingManager routingManager;
     routingManager.ResolveSwitchingTables(reader.GetRawSwitchingTables(),
-                                            nodeIdToIpMap,
-                                            simulationStart);
+    nodeIdToIpMap,
+    ipAssignmentHelper,
+    simulationStart);
     // Append switching tables to nodes
     routingManager.AttachSwitchingTablesToNodes(sourceIdNsNodeMap);
+
+    // Step 7: Set the switching table for each CustomRoutingProtocol
+    for (const auto& [nodeId, node] : sourceIdNsNodeMap) {
+        Ptr<leo::CustomRoutingProtocol> customRouting = customRoutingProtocols[nodeId];
+        Ptr<leo::ConstellationNodeData> nodeData = node->GetObject<leo::ConstellationNodeData>();
+        if (customRouting && nodeData) {
+            customRouting->SetSwitchingTable(nodeData->GetSwitchingTable());
+            customRouting->SetNextHopToDeviceMap(ipAssignmentHelper);
+            // NS_LOG_INFO("Switching table set for node " << nodeId);
+        }
+    }
 
     // Print one of the resolvedTables
     /*const std::vector<ns3::leo::SwitchingTable> resolvedTables = routingManager.GetSwitchingTables();
@@ -138,20 +160,6 @@ int main(int argc, char *argv[]) {
     } else {
         NS_LOG_WARN("No resolved switching tables available.");
     }*/
-    // install custom forwarding logic - TODO: extract to populateForwardingTable function
-    for (const auto& [nodeId, node] : sourceIdNsNodeMap) {
-        Ptr<leo::CustomRoutingProtocol> customRouting = CreateObject<leo::CustomRoutingProtocol>();
-        Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
-        if (ipv4) {
-            customRouting->SetIpv4(ipv4);
-            ipv4->SetRoutingProtocol(customRouting);
-            Ptr<leo::ConstellationNodeData> nodeData = node->GetObject<leo::ConstellationNodeData>();
-            if (nodeData) {
-                customRouting->SetSwitchingTable(nodeData->GetSwitchingTable());
-                //NS_LOG_INFO("Custom routing protocol installed on node " << nodeId);
-            }
-        }
-    }
 
     Ptr<Node> gs1 = sourceIdNsNodeMap[gs1Id];
     Ptr<Node> gs2 = sourceIdNsNodeMap[gs2Id];
@@ -160,6 +168,7 @@ int main(int argc, char *argv[]) {
     // This needs to be changed depending
     Ipv4Address gs1Address =  nodeIdToIpMap[gs1Id][0];
     Ipv4Address gs2Address =  nodeIdToIpMap[gs2Id][0];
+
 
     // Retrieve nodes for gs1 and gs2
     const auto* gs1Node = dynamic_cast<const leo::FileReader::GroundStationNode*>(reader.GetNodeMap().at(gs1Id));
@@ -177,30 +186,54 @@ int main(int argc, char *argv[]) {
         NS_LOG_ERROR("Failed to retrieve town for GS2 '" << gs2Id << "'");
     }
 
-    for (const auto& [nodeId, node] : sourceIdNsNodeMap) {
+    /*for (const auto& [nodeId, node] : sourceIdNsNodeMap) {
         Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
         for (uint32_t i = 0; i < ipv4->GetNInterfaces(); ++i) {
             for (uint32_t j = 0; j < ipv4->GetNAddresses(i); ++j) {
                 NS_LOG_INFO("Node " << nodeId << " Interface " << i << " Address " << ipv4->GetAddress(i, j).GetLocal());
             }
         }
-    }
-    // Step 7: Install a UDP server on gs2
-    uint16_t port = 9;
-    UdpEchoServerHelper echoServer(port);
+    }*/
+
+   // Step 7: Install a UDP server on gs2
+   uint16_t port = 19;
+   UdpEchoServerHelper echoServer(port);
     ApplicationContainer serverApps = echoServer.Install(gs2);
     serverApps.Start(Seconds(1.0));
     serverApps.Stop(Seconds(10.0));
 
     // Step 8: Install a UDP client on gs1
-    UdpEchoClientHelper echoClient(gs2Address, port);
+    /*UdpEchoClientHelper echoClient(gs2Address, port);
     echoClient.SetAttribute("MaxPackets", UintegerValue(1));
     echoClient.SetAttribute("Interval", TimeValue(Seconds(1.0)));
     echoClient.SetAttribute("PacketSize", UintegerValue(1024));
+    */
+   Ptr<Socket> clientSocket = Socket::CreateSocket(gs1, UdpSocketFactory::GetTypeId());
 
-    ApplicationContainer clientApps = echoClient.Install(gs1);
-    clientApps.Start(Seconds(2.0));
-    clientApps.Stop(Seconds(10.0));
+   // Get gs1's Ipv4 object and bind the socket to the correct interface
+
+   Ptr<Ipv4> ipv4 = gs1->GetObject<Ipv4>();
+   int32_t ifaceIndex = ipv4->GetInterfaceForAddress(gs1Address);
+   NS_ASSERT_MSG(ifaceIndex >= 0, "Interface not found for gs1Address");
+   Ptr<NetDevice> netDevice = gs1->GetDevice(ifaceIndex);
+
+   // Bind socket to specific IP and port
+   InetSocketAddress localBind(gs1Address, port); // Use gs1's IP
+   clientSocket->Bind(localBind);
+   clientSocket->BindToNetDevice(netDevice);
+
+   // Connect to gs2
+   InetSocketAddress remote(gs2Address, port);
+   clientSocket->Connect(remote);
+
+   // Schedule sending packet at 2s
+   Simulator::Schedule(Seconds(2.0), [clientSocket]() {
+       Ptr<Packet> packet = Create<Packet>(1024);  // 1024-byte payload
+       clientSocket->Send(packet);
+   });
+
+    //clientApp.Start(Seconds(2.0));
+    //clientApp.Stop(Seconds(10.0));
 
     // Step 9: Set up global routing for now
     //Ipv4GlobalRoutingHelper::PopulateRoutingTables();
