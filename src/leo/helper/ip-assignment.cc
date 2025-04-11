@@ -9,14 +9,15 @@ namespace leo {
 
 NS_LOG_COMPONENT_DEFINE("IpAssignmentHelper");
 
-std::unordered_map<std::string, Ipv4Address> IpAssignmentHelper::AssignIpAddresses(
+std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::AssignIpAddresses(
     const std::vector<leo::FileReader::Edge>& edges,
     std::unordered_map<std::string, Ptr<Node>>& sourceIdNsNodeMap)
 {
     // Speed of light in km/s
     const double speedOfLight = 299792.4580;
 
-    std::unordered_map<std::string, Ipv4Address> nodeIdToIpMap;
+    // Each node can have mulitple links (ISLs, feeder) so they need multiple IPs
+    std::unordered_map<std::string, std::vector<Ipv4Address>> nodeIdToIpMap;
 
     Ipv4AddressHelper ipv4;
     int maj_subnet_counter = 1;
@@ -50,6 +51,7 @@ std::unordered_map<std::string, Ipv4Address> IpAssignmentHelper::AssignIpAddress
         p2p.SetDeviceAttribute("DataRate", StringValue("10Gbps"));
 
         // Create a point-to-point link between the source and target nodes
+        NS_LOG_INFO("Creating link between " << edge.source << " and " << edge.target);
         NetDeviceContainer devices = p2p.Install(sourceNode, targetNode);
 
         // Assign IP addresses to the link
@@ -63,16 +65,20 @@ std::unordered_map<std::string, Ipv4Address> IpAssignmentHelper::AssignIpAddress
 
         ipv4.SetBase(subnetStream.str().c_str(), "255.255.255.0");
         Ipv4InterfaceContainer interfaces = ipv4.Assign(devices);
+        /*if (edge.source == "IRIDIUM 145" || edge.target == "IRIDIUM 145" ||
+            edge.source == "632430d9e1196" || edge.target == "632430d9e1196")
+        {
+            NS_LOG_INFO("Assigned IP addresses for link:");
+            NS_LOG_INFO("  Source (" << edge.source << "): " << interfaces.GetAddress(0));
+            NS_LOG_INFO("  Target (" << edge.target << "): " << interfaces.GetAddress(1));
+        }*/
 
         Ipv4Address srcIp = interfaces.GetAddress(0);
         Ipv4Address dstIp = interfaces.GetAddress(1);
 
-        if (nodeIdToIpMap.count(edge.source) == 0) {
-            nodeIdToIpMap[edge.source] = srcIp;
-        }
-        if (nodeIdToIpMap.count(edge.target) == 0) {
-            nodeIdToIpMap[edge.target] = dstIp;
-        }
+        nodeIdToIpMap[edge.source].push_back(srcIp);
+        nodeIdToIpMap[edge.target].push_back(dstIp);
+
 
         min_subnet_counter++;
         if (min_subnet_counter == 255) {

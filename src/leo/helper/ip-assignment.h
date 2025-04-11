@@ -13,7 +13,7 @@ namespace leo {
 
 class IpAssignmentHelper {
 public:
-    static std::unordered_map<std::string, Ipv4Address> AssignIpAddresses(
+    static std::unordered_map<std::string, std::vector<Ipv4Address>> AssignIpAddresses(
         const std::vector<leo::FileReader::Edge>& edges,
         std::unordered_map<std::string, Ptr<Node>>& sourceIdNsNodeMap
     );

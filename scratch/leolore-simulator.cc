@@ -9,6 +9,8 @@
 #include "ns3/ip-assignment.h"
 #include "ns3/routing-manager.h"
 #include "ns3/constant-position-mobility-model.h"
+#include "ns3/switching-forwarder.h"
+#include "ns3/custom-ipv4-l3-protocol.h"
 #include <ctime>
 #include <chrono>
 #include <iomanip>
@@ -24,6 +26,8 @@ int main(int argc, char *argv[]) {
     LogComponentEnable("LeoLoreSimulator", LOG_LEVEL_INFO);
     LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
     LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
+    LogComponentEnable("CustomRoutingProtocol", LOG_LEVEL_INFO);
+    LogComponentEnable("IpAssignmentHelper", LOG_LEVEL_INFO);
 
     std::string gs1Id = "632430d9e1196";
     std::string gs2Id = "632430d9e10d6";
@@ -62,8 +66,9 @@ int main(int argc, char *argv[]) {
         data->SetSourceId(node_ptr->id);
         sourceIdNsNodeMap[node_ptr->id] = networkNode;
         data->SetType(node_ptr->type);
-        /*Ptr<MobilityModel> mobility = CreateObject<ConstantPositionMobilityModel>();
-        networkNode->AggregateObject(mobility);*/
+        // Needed to get rid of mobility warnings for animator
+        Ptr<MobilityModel> mobility = CreateObject<ConstantPositionMobilityModel>();
+        networkNode->AggregateObject(mobility);
 
         if (node_ptr->type == "satellite") {
             const auto* satNode = dynamic_cast<const leo::FileReader::SatelliteNode*>(node_ptr.get());
@@ -88,7 +93,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Step 3: Install the internet protocol stack
+    // Step 3: Install the internet protocol stack (Ipv4 object and Ipv4L3protocol instance)
     InternetStackHelper internetStack;
     internetStack.Install(groundStations);
     internetStack.Install(satellites);
@@ -100,24 +105,30 @@ int main(int argc, char *argv[]) {
     NS_LOG_INFO("Number of edges: " << reader.GetEdges().size());
 
     // Step 5: Assign IP addresses and collect IP map
-    std::unordered_map<std::string, Ipv4Address> nodeIdToIpMap =
+    std::unordered_map<std::string, std::vector<Ipv4Address>> nodeIdToIpMap =
     ipAssignmentHelper.AssignIpAddresses(reader.GetEdges(), sourceIdNsNodeMap);
 
-    NS_LOG_INFO("Printing nodeIdToIpMap:");
+    /*NS_LOG_INFO("Printing nodeIdToIpMap:");
     for (const auto& pair : nodeIdToIpMap) {
-        NS_LOG_INFO("Node ID: " << pair.first << ", IP Address: " << pair.second);
-    }
+        NS_LOG_INFO("Node ID: " << pair.first << ", IP Addresses: ");
+        for (const auto& ip : pair.second) {
+            NS_LOG_INFO("  " << ip);
+        }
+    }*/
 
     // Resolve Switching tables = map node ids to ip addresses
     leo::RoutingManager routingManager;
-    std::vector<leo::SwitchingTable> resolvedTables = routingManager.ResolveSwitchingTables(reader.GetRawSwitchingTables(),
-                                                                                            nodeIdToIpMap,
-                                                                                            simulationStart);
+    routingManager.ResolveSwitchingTables(reader.GetRawSwitchingTables(),
+                                            nodeIdToIpMap,
+                                            simulationStart);
+    // Append switching tables to nodes
+    routingManager.AttachSwitchingTablesToNodes(sourceIdNsNodeMap);
 
     // Print one of the resolvedTables
-    /*if (!resolvedTables.empty()) {
+    /*const std::vector<ns3::leo::SwitchingTable> resolvedTables = routingManager.GetSwitchingTables();
+    if (!resolvedTables.empty()) {
         const leo::SwitchingTable& table = resolvedTables[0]; // Access the first table
-        NS_LOG_INFO("Switching Table for Node IP: " << table.node_ip);
+        NS_LOG_INFO("Node: " << table.node_id);
         NS_LOG_INFO("Valid From: " << table.valid_from.GetSeconds() << " seconds");
         NS_LOG_INFO("Valid Until: " << table.valid_until.GetSeconds() << " seconds");
         NS_LOG_INFO("Routing Table:");
@@ -127,13 +138,28 @@ int main(int argc, char *argv[]) {
     } else {
         NS_LOG_WARN("No resolved switching tables available.");
     }*/
+    // install custom forwarding logic - TODO: extract to populateForwardingTable function
+    for (const auto& [nodeId, node] : sourceIdNsNodeMap) {
+        Ptr<leo::CustomRoutingProtocol> customRouting = CreateObject<leo::CustomRoutingProtocol>();
+        Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
+        if (ipv4) {
+            customRouting->SetIpv4(ipv4);
+            ipv4->SetRoutingProtocol(customRouting);
+            Ptr<leo::ConstellationNodeData> nodeData = node->GetObject<leo::ConstellationNodeData>();
+            if (nodeData) {
+                customRouting->SetSwitchingTable(nodeData->GetSwitchingTable());
+                //NS_LOG_INFO("Custom routing protocol installed on node " << nodeId);
+            }
+        }
+    }
 
     Ptr<Node> gs1 = sourceIdNsNodeMap[gs1Id];
     Ptr<Node> gs2 = sourceIdNsNodeMap[gs2Id];
 
     // Step 6: Retrieve IP address of gs);
-    Ipv4Address gs1Address =  nodeIdToIpMap[gs1Id];
-    Ipv4Address gs2Address =  nodeIdToIpMap[gs2Id];
+    // This needs to be changed depending
+    Ipv4Address gs1Address =  nodeIdToIpMap[gs1Id][0];
+    Ipv4Address gs2Address =  nodeIdToIpMap[gs2Id][0];
 
     // Retrieve nodes for gs1 and gs2
     const auto* gs1Node = dynamic_cast<const leo::FileReader::GroundStationNode*>(reader.GetNodeMap().at(gs1Id));
@@ -151,6 +177,14 @@ int main(int argc, char *argv[]) {
         NS_LOG_ERROR("Failed to retrieve town for GS2 '" << gs2Id << "'");
     }
 
+    for (const auto& [nodeId, node] : sourceIdNsNodeMap) {
+        Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
+        for (uint32_t i = 0; i < ipv4->GetNInterfaces(); ++i) {
+            for (uint32_t j = 0; j < ipv4->GetNAddresses(i); ++j) {
+                NS_LOG_INFO("Node " << nodeId << " Interface " << i << " Address " << ipv4->GetAddress(i, j).GetLocal());
+            }
+        }
+    }
     // Step 7: Install a UDP server on gs2
     uint16_t port = 9;
     UdpEchoServerHelper echoServer(port);
@@ -169,16 +203,8 @@ int main(int argc, char *argv[]) {
     clientApps.Stop(Seconds(10.0));
 
     // Step 9: Set up global routing for now
-    Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+    //Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
-    // To get rid of mobility warnings for animator
-    for (const auto& node_ptr : reader.GetNodes()) {
-        Ptr<Node> node = sourceIdNsNodeMap[node_ptr->id];
-        if (!node->GetObject<MobilityModel>()) {
-            Ptr<ConstantPositionMobilityModel> mobility = CreateObject<ConstantPositionMobilityModel>();
-            node->AggregateObject(mobility);
-        }
-    }
     // Set up animation for nodes
     AnimationInterface anim("leolore-simulator.xml");
     anim.EnablePacketMetadata(true);
@@ -197,6 +223,7 @@ int main(int argc, char *argv[]) {
             anim.UpdateNodeColor(node->GetId(), 255, 0, 0);
         }
     }
+
     // Step 10: Run the simulation
     Simulator::Run();
     Simulator::Destroy();

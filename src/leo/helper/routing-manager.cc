@@ -6,6 +6,7 @@
 #include <chrono>
 #include <iomanip>
 #include <ctime>
+#include "ns3/custom-node-data.h"
 
 NS_LOG_COMPONENT_DEFINE("RoutingManager");
 
@@ -34,12 +35,10 @@ Time ParseTimeString(const std::string& timeStr, const std::chrono::system_clock
     return Seconds(diff.count());
 }
 
-std::vector<SwitchingTable> RoutingManager::ResolveSwitchingTables(
+void RoutingManager::ResolveSwitchingTables(
     const std::vector<FileReader::RawSwitchingTable>& raw_tables,
-    const std::unordered_map<std::string, Ipv4Address>& nodeIdToIpMap,
+    const std::unordered_map<std::string, std::vector<Ipv4Address>>& nodeIdToIpMap,
     const std::chrono::system_clock::time_point& simulationStart) {
-
-        std::vector<SwitchingTable> resolved_tables;
 
     for (const auto& table : raw_tables) {
         // Create a local routing table
@@ -57,20 +56,16 @@ std::vector<SwitchingTable> RoutingManager::ResolveSwitchingTables(
                 continue;
             }
 
-            // Add the resolved route to the routing table
-            routing_table[destIt->second] = nextHopIt->second;
-        }
+            // Use the first IP for now
+            Ipv4Address destIp = destIt->second.front();
+            Ipv4Address nextHopIp = nextHopIt->second.front();
+            routing_table[destIp] = nextHopIp;
 
-        // Resolve the node's IP address
-        auto nodeIt = nodeIdToIpMap.find(table.node);
-        if (nodeIt == nodeIdToIpMap.end()) {
-            NS_LOG_WARN("Node ID " << table.node << " not found in IP map.");
-            continue;
         }
 
         // Create the SwitchingTable object using the constructor
         SwitchingTable resolved(
-            nodeIt->second,
+            table.node,
             ParseTimeString(table.valid_from, simulationStart),
             ParseTimeString(table.valid_until, simulationStart),
             std::move(routing_table)
@@ -80,11 +75,29 @@ std::vector<SwitchingTable> RoutingManager::ResolveSwitchingTables(
         routing_table.erase(Ipv4Address::GetLoopback());
 
         // Add the resolved SwitchingTable to the vector
-        resolved_tables.push_back(std::move(resolved));
+        switching_tables.push_back(std::move(resolved));
 
     }
-
-    return resolved_tables;
+}
+void RoutingManager::AttachSwitchingTablesToNodes(
+    const std::unordered_map<std::string, Ptr<Node>>& sourceIdNsNodeMap) const
+{
+    for (const auto& table : switching_tables) {
+        std::string nodeId = table.node_id;
+        auto it = sourceIdNsNodeMap.find(nodeId);
+        if (it != sourceIdNsNodeMap.end()) {
+            Ptr<Node> node = it->second;
+            Ptr<leo::ConstellationNodeData> data = node->GetObject<leo::ConstellationNodeData>();
+            if (data) {
+                data->SetSwitchingTable(table);
+                NS_LOG_INFO("Attached switching table to node " << nodeId);
+            } else {
+                NS_LOG_WARN("No ConstellationNodeData found on node " << nodeId);
+            }
+        } else {
+            NS_LOG_WARN("No node found for nodeId " << nodeId);
+        }
+    }
 }
 }
 } // namespace ns3
