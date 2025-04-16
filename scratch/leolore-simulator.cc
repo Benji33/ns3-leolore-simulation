@@ -4,13 +4,14 @@
 #include "ns3/point-to-point-module.h"
 #include "ns3/applications-module.h"
 #include "ns3/file-reader.h"
-#include "ns3/custom-node-data.h"
+#include "ns3/network-state.h"
+#include "ns3/constellation-node-data.h"
 #include "ns3/netanim-module.h"
 #include "ns3/ip-assignment.h"
 #include "ns3/routing-manager.h"
 #include "ns3/constant-position-mobility-model.h"
-#include "ns3/switching-forwarder.h"
 #include "ns3/custom-ipv4-l3-protocol.h"
+#include "ns3/topology-manager.h"
 #include <ctime>
 #include <chrono>
 #include <iomanip>
@@ -28,6 +29,11 @@ int main(int argc, char *argv[]) {
     LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
     LogComponentEnable("CustomRoutingProtocol", LOG_LEVEL_INFO);
     LogComponentEnable("IpAssignmentHelper", LOG_LEVEL_INFO);
+    LogComponentEnable("TopologyManager", LOG_LEVEL_INFO);
+    LogComponentEnable("RoutingManager", LOG_LEVEL_INFO);
+    LogComponentEnable("FileReader", LOG_LEVEL_INFO);
+    LogComponentEnable("NetworkState", LOG_LEVEL_INFO);
+    //LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_INFO);
 
     std::string gs1Id = "632430d9e1196";
     std::string gs2Id = "632430d9e10d6";
@@ -50,13 +56,12 @@ int main(int argc, char *argv[]) {
     //reader.printSwitchtingTables();
 
     reader.ReadConstellationEvents("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/events.json", simulationStart);
+    //reader.printConstellationEvents();
+
     // Step 2: Create containers & nodes for ns-3 nodes
-    NodeContainer groundStations;
-    NodeContainer satellites;
-
     // Map source IDs to ns-3 nodes
-    std::unordered_map<std::string, Ptr<Node>> sourceIdNsNodeMap;
-
+    // Create a network state object to manage the network state
+    leo::NetworkState networkState;
 
 
     NS_LOG_INFO("Number of nodes: " << reader.GetNodes().size());
@@ -65,7 +70,6 @@ int main(int argc, char *argv[]) {
         Ptr<Node> networkNode = CreateObject<Node>();
         Ptr<leo::ConstellationNodeData> data = CreateObject<leo::ConstellationNodeData>();
         data->SetSourceId(node_ptr->id);
-        sourceIdNsNodeMap[node_ptr->id] = networkNode;
         data->SetType(node_ptr->type);
         // Needed to get rid of mobility warnings for animator
         Ptr<MobilityModel> mobility = CreateObject<ConstantPositionMobilityModel>();
@@ -79,7 +83,7 @@ int main(int argc, char *argv[]) {
                 NS_LOG_ERROR("Failed to cast node to SatelliteNode");
             }
             networkNode->AggregateObject(data);
-            satellites.Add(networkNode);
+            networkState.RegisterNode(networkNode, networkNode->GetId(), node_ptr->id, true);
         } else if (node_ptr->type == "ground_station") {
             const auto* gsNode = dynamic_cast<const leo::FileReader::GroundStationNode*>(node_ptr.get());
             if (gsNode) {
@@ -88,7 +92,8 @@ int main(int argc, char *argv[]) {
                 NS_LOG_ERROR("Failed to cast node to GroundStationNode");
             }
             networkNode->AggregateObject(data);
-            groundStations.Add(networkNode);
+            networkState.RegisterNode(networkNode, networkNode->GetId(), node_ptr->id, false);
+
         } else {
             NS_LOG_ERROR("Unknown node type: " << node_ptr->type);
         }
@@ -96,19 +101,38 @@ int main(int argc, char *argv[]) {
 
     // Step 3: Install the internet protocol stack (Ipv4 object and Ipv4L3protocol instance)
     InternetStackHelper internetStack;
-    internetStack.Install(groundStations);
-    internetStack.Install(satellites);
+    // Find node 632430d9e1196 in networkState.GetNodes()
+    std::string targetSourceId = "IRIDIUM 145"; //"632430d9e1196";
+    bool nodeFound = false;
+
+    NodeContainer nodes = networkState.GetNodes();
+    for (uint32_t i = 0; i < nodes.GetN(); ++i) {
+        Ptr<Node> node = nodes.Get(i);
+        Ptr<leo::ConstellationNodeData> data = node->GetObject<leo::ConstellationNodeData>();
+        if (data && data->GetSourceId() == targetSourceId) {
+            NS_LOG_INFO("Node with source ID " << targetSourceId << " is present in the NodeContainer.");
+            nodeFound = true;
+            break;
+        }
+    }
+
+    if (!nodeFound) {
+        NS_LOG_ERROR("Node with source ID " << targetSourceId << " is NOT present in the NodeContainer.");
+    }
+
+    internetStack.Install(networkState.GetNodes());
 
     // Step 4: Attach CustomRoutingProtocol to all nodes
     // install custom forwarding logic - TODO: extract to populateForwardingTable function
     std::unordered_map<std::string, Ptr<leo::CustomRoutingProtocol>> customRoutingProtocols;
-    for (const auto& [nodeId, node] : sourceIdNsNodeMap) {
-        Ptr<leo::CustomRoutingProtocol> customRouting = CreateObject<leo::CustomRoutingProtocol>();
-        Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
+    for (const auto& [srcId, ns3Id] : networkState.GetSourceIdToNs3Id()) {
+        Ptr<leo::CustomRoutingProtocol> customRouting = CreateObject<leo::CustomRoutingProtocol>(networkState,
+                                                                                                networkState.GetNodeBySourceId(srcId));
+        Ptr<Ipv4> ipv4 = networkState.GetNodeBySourceId(srcId)->GetObject<Ipv4>();
         if (ipv4) {
             customRouting->SetIpv4(ipv4);
             ipv4->SetRoutingProtocol(customRouting);
-            customRoutingProtocols[nodeId] = customRouting; // Store the protocol for later use
+            customRoutingProtocols[srcId] = customRouting; // Store the protocol for later use
             // NS_LOG_INFO("Custom routing protocol attached to node " << nodeId);
         }
     }
@@ -116,60 +140,40 @@ int main(int argc, char *argv[]) {
     // Step 5: Assign IP addresses and collect IP map
     leo::IpAssignmentHelper ipAssignmentHelper;
     NS_LOG_INFO("Number of edges: " << reader.GetEdges().size());
-    std::unordered_map<std::string, std::vector<Ipv4Address>> nodeIdToIpMap =
-        ipAssignmentHelper.AssignIpAddresses(reader.GetEdges(), sourceIdNsNodeMap);
-
-    /*NS_LOG_INFO("Printing nodeIdToIpMap:");
-    for (const auto& pair : nodeIdToIpMap) {
-        NS_LOG_INFO("Node ID: " << pair.first << ", IP Addresses: ");
-        for (const auto& ip : pair.second) {
-            NS_LOG_INFO("  " << ip);
-        }
-    }*/
-
+    /*std::unordered_map<std::string, std::vector<Ipv4Address>> nodeIdToIpMap =
+        ipAssignmentHelper.AssignIpAddresses(reader.GetEdges(), networkState);
+    */
+    ipAssignmentHelper.PrecreateAllLinks(reader.GetAllUniqueLinks(), networkState);
     // Step 6: Resolve Switching tables = map node ids to IP addresses
     leo::RoutingManager routingManager;
     routingManager.ResolveSwitchingTables(reader.GetRawSwitchingTables(),
-    nodeIdToIpMap,
-    ipAssignmentHelper,
+    //nodeIdToIpMap,
+    networkState,
     simulationStart);
     // Append switching tables to nodes
-    routingManager.AttachSwitchingTablesToNodes(sourceIdNsNodeMap);
+    routingManager.AttachSwitchingTablesToNodes(networkState);
 
     // Step 7: Set the switching table for each CustomRoutingProtocol
-    for (const auto& [nodeId, node] : sourceIdNsNodeMap) {
-        Ptr<leo::CustomRoutingProtocol> customRouting = customRoutingProtocols[nodeId];
-        Ptr<leo::ConstellationNodeData> nodeData = node->GetObject<leo::ConstellationNodeData>();
+    for (const auto& [srcId, ns3Id] : networkState.GetSourceIdToNs3Id()) {
+        Ptr<leo::CustomRoutingProtocol> customRouting = customRoutingProtocols[srcId];
+        Ptr<leo::ConstellationNodeData> nodeData = networkState.GetNodeBySourceId(srcId)->GetObject<leo::ConstellationNodeData>();
         if (customRouting && nodeData) {
             customRouting->SetSwitchingTable(nodeData->GetSwitchingTable());
-            customRouting->SetNextHopToDeviceMap(ipAssignmentHelper);
+            //customRouting->SetNextHopToDeviceMap(ipAssignmentHelper);
             // NS_LOG_INFO("Switching table set for node " << nodeId);
         }
     }
 
-    // Print one of the resolvedTables
-    /*const std::vector<ns3::leo::SwitchingTable> resolvedTables = routingManager.GetSwitchingTables();
-    if (!resolvedTables.empty()) {
-        const leo::SwitchingTable& table = resolvedTables[0]; // Access the first table
-        NS_LOG_INFO("Node: " << table.node_id);
-        NS_LOG_INFO("Valid From: " << table.valid_from.GetSeconds() << " seconds");
-        NS_LOG_INFO("Valid Until: " << table.valid_until.GetSeconds() << " seconds");
-        NS_LOG_INFO("Routing Table:");
-        for (const auto& entry : table.ip_routing_table) {
-            NS_LOG_INFO("  Destination: " << entry.first << ", Next Hop: " << entry.second);
-        }
-    } else {
-        NS_LOG_WARN("No resolved switching tables available.");
-    }*/
+    Ptr<Node> gs1 = networkState.GetNodeBySourceId(gs1Id);
+    Ptr<Node> gs2 = networkState.GetNodeBySourceId(gs2Id);
 
-    Ptr<Node> gs1 = sourceIdNsNodeMap[gs1Id];
-    Ptr<Node> gs2 = sourceIdNsNodeMap[gs2Id];
+    // TODO: This needs to be changed: Choose ip of outgoing network device that connects with next hop satellite from switching table
+
 
     // Step 6: Retrieve IP address of gs);
-    // This needs to be changed depending
-    Ipv4Address gs1Address =  nodeIdToIpMap[gs1Id][0];
-    Ipv4Address gs2Address =  nodeIdToIpMap[gs2Id][0];
-
+    // Get the IP address of gs1 and gs2
+    Ipv4Address gs1Address = networkState.GetIpAddressForDevice(gs1->GetDevice(1));
+    Ipv4Address gs2Address = networkState.GetIpAddressForDevice(gs2->GetDevice(1));
 
     // Retrieve nodes for gs1 and gs2
     const auto* gs1Node = dynamic_cast<const leo::FileReader::GroundStationNode*>(reader.GetNodeMap().at(gs1Id));
@@ -186,16 +190,10 @@ int main(int argc, char *argv[]) {
     } else {
         NS_LOG_ERROR("Failed to retrieve town for GS2 '" << gs2Id << "'");
     }
-
-    /*for (const auto& [nodeId, node] : sourceIdNsNodeMap) {
-        Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();
-        for (uint32_t i = 0; i < ipv4->GetNInterfaces(); ++i) {
-            for (uint32_t j = 0; j < ipv4->GetNAddresses(i); ++j) {
-                NS_LOG_INFO("Node " << nodeId << " Interface " << i << " Address " << ipv4->GetAddress(i, j).GetLocal());
-            }
-        }
+    /*// Print networkState.m_ipToNodeIdMap
+    for (const auto& [ip, nodeId] : networkState.GetIpToNodeIdMap()) {
+        NS_LOG_INFO("IP: " << ip << ", Node ID: " << nodeId);
     }*/
-
    // Step 7: Install a UDP server on gs2
    uint16_t port = 19;
    UdpEchoServerHelper echoServer(port);
@@ -213,8 +211,8 @@ int main(int argc, char *argv[]) {
 
    // Get gs1's Ipv4 object and bind the socket to the correct interface
 
-   Ptr<Ipv4> ipv4 = gs1->GetObject<Ipv4>();
-   int32_t ifaceIndex = ipv4->GetInterfaceForAddress(gs1Address);
+   Ptr<Ipv4> ipv42 = gs1->GetObject<Ipv4>();
+   int32_t ifaceIndex = ipv42->GetInterfaceForAddress(gs1Address);
    NS_ASSERT_MSG(ifaceIndex >= 0, "Interface not found for gs1Address");
    Ptr<NetDevice> netDevice = gs1->GetDevice(ifaceIndex);
 
@@ -232,7 +230,7 @@ int main(int argc, char *argv[]) {
        Ptr<Packet> packet = Create<Packet>(1024);  // 1024-byte payload
        clientSocket->Send(packet);
    });
-
+   Simulator::Schedule(Seconds(2.06), [&networkState]() {networkState.DisableLink("IRIDIUM 134", "IRIDIUM 145");});
     //clientApp.Start(Seconds(2.0));
     //clientApp.Stop(Seconds(10.0));
 
@@ -244,7 +242,7 @@ int main(int argc, char *argv[]) {
     anim.EnablePacketMetadata(true);
 
     for (const auto& node_ptr : reader.GetNodes()) {
-        Ptr<Node> node = sourceIdNsNodeMap[node_ptr->id];
+        Ptr<Node> node = networkState.GetNodeBySourceId(node_ptr->id);
 
         anim.UpdateNodeDescription(node->GetId(), node_ptr->id);
         anim.SetConstantPosition(node, node_ptr->position.first, node_ptr->position.second);
@@ -257,6 +255,8 @@ int main(int argc, char *argv[]) {
             anim.UpdateNodeColor(node->GetId(), 255, 0, 0);
         }
     }
+    leo::TopologyManager topologyManager(reader.GetConstellationEvents(), networkState, anim);
+    topologyManager.ScheduleAllEvents();
 
     // Step 10: Run the simulation
     Simulator::Run();

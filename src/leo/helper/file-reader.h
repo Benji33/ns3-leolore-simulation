@@ -79,10 +79,13 @@ public:
     const std::vector<Edge>& GetEdges() const { return edges; }
     const std::unordered_map<std::string, Node*>& GetNodeMap() const { return node_map; }
     std::vector<RawSwitchingTable>& GetRawSwitchingTables() { return raw_switching_tables; }
+    const std::map<double, std::vector<ConstellationEvent>>& GetConstellationEvents() const { return constellation_events_map; }
+    std::map<std::pair<std::string, std::string>, double> GetAllUniqueLinks() const;
 
     // Visulization
     void printGraph() const;
     void printSwitchtingTables() const;
+    void printConstellationEvents() const;
 
 private:
     // Vectors to hold nodes and edges

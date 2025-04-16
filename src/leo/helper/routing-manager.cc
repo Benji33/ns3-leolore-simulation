@@ -6,7 +6,7 @@
 #include <chrono>
 #include <iomanip>
 #include <ctime>
-#include "ns3/custom-node-data.h"
+#include "ns3/constellation-node-data.h"
 
 NS_LOG_COMPONENT_DEFINE("RoutingManager");
 
@@ -37,76 +37,71 @@ Time ParseTimeString(const std::string& timeStr, const std::chrono::system_clock
 
 void RoutingManager::ResolveSwitchingTables(
     const std::vector<FileReader::RawSwitchingTable>& raw_tables,
-    const std::unordered_map<std::string, std::vector<Ipv4Address>>& nodeIdToIpMap,
-    leo::IpAssignmentHelper ipAssignmentHelper,
+    //const std::unordered_map<std::string, std::vector<Ipv4Address>>& nodeIdToIpMap,
+    leo::NetworkState& networkState,
     const std::chrono::system_clock::time_point& simulationStart) {
 
     for (const auto& table : raw_tables) {
-        // Create a local routing table
+      /*  // Create a local routing table
         std::unordered_map<ns3::Ipv4Address, ns3::Ipv4Address> routing_table = {
             {Ipv4Address::GetLoopback(), Ipv4Address::GetLoopback()} // Initialize with loopback address
         };
 
         // Resolve the routing table entries
         for (const auto& route : table.table_data) {
-            auto destIt = nodeIdToIpMap.find(route.first);
-            auto nextHopIt = nodeIdToIpMap.find(route.second);
+            const std::string& sourceNodeId = table.node; // Current node id
+            const std::string& destNodeId = route.first;  // Destination node id
+            const std::string& nextHopNodeId = route.second; // Next hop id
 
-            if (destIt == nodeIdToIpMap.end() || nextHopIt == nodeIdToIpMap.end()) {
-                NS_LOG_WARN("Invalid route entry: " << route.first << " -> " << route.second);
+            // Get the next hop device and its IP address
+            auto linkInfo = networkState.GetLinkInfo(sourceNodeId, nextHopNodeId);
+            if (!linkInfo.IsValid()) {
+                NS_LOG_WARN("No link info found for source: " << sourceNodeId << " and next hop: " << nextHopNodeId);
                 continue;
             }
 
-            // Use the first IP for now
-            Ipv4Address destIp = destIt->second.front();
+            Ipv4Address nextHopIp = networkState.GetIpAddressForDevice(linkInfo.deviceA);
 
-            const std::string& sourceNodeId = table.node; // Current node ID
-            const std::string& destNodeId = route.first;  // Destination node ID
-            const std::string& nextHopNodeId = route.second;
-
-            auto ipPair = ipAssignmentHelper.GetIpPair(sourceNodeId, nextHopNodeId);
-            if (ipPair.first == Ipv4Address() || ipPair.second == Ipv4Address()) {
-                NS_LOG_WARN("No IP pair found for source: " << sourceNodeId << " and next hop: " << nextHopNodeId);
+            // Get the destination IP address
+            auto destIt = nodeIdToIpMap.find(destNodeId);
+            if (destIt == nodeIdToIpMap.end()) {
+                NS_LOG_WARN("Invalid destination node ID: " << destNodeId);
                 continue;
             }
-
-            // Use the source IP as the destination IP and the target IP as the next-hop IP
-            //Ipv4Address destIp = ipPair.first;
-            Ipv4Address nextHopIp = ipPair.second;
+            Ipv4Address destIp = destIt->second.front(); // Use the first IP for now
 
             // Add the resolved route to the routing table
             routing_table[destIp] = nextHopIp;
             NS_LOG_INFO("Resolved route: " << destIp << " -> " << nextHopIp);
         }
-
+    */
         // Create the SwitchingTable object using the constructor
         SwitchingTable resolved(
             table.node,
             ParseTimeString(table.valid_from, simulationStart),
             ParseTimeString(table.valid_until, simulationStart),
-            std::move(routing_table)
+            std::move(table.table_data)
         );
 
         // Delete loopback address from routing table
-        routing_table.erase(Ipv4Address::GetLoopback());
+        //routing_table.erase(Ipv4Address::GetLoopback());
 
         // Add the resolved SwitchingTable to the vector
         switching_tables.push_back(std::move(resolved));
-
     }
 }
+
 void RoutingManager::AttachSwitchingTablesToNodes(
-    const std::unordered_map<std::string, Ptr<Node>>& sourceIdNsNodeMap) const
+    leo::NetworkState& networkState) const
 {
     for (const auto& table : switching_tables) {
         std::string nodeId = table.node_id;
-        auto it = sourceIdNsNodeMap.find(nodeId);
-        if (it != sourceIdNsNodeMap.end()) {
-            Ptr<Node> node = it->second;
+        Ptr<Node> node = networkState.GetNodeBySourceId(nodeId);
+        if (node != nullptr) {
             Ptr<leo::ConstellationNodeData> data = node->GetObject<leo::ConstellationNodeData>();
             if (data) {
                 data->SetSwitchingTable(table);
-                NS_LOG_INFO("Attached switching table to node " << nodeId);
+                //NS_LOG_INFO("Attached switching table to node " << nodeId);
             } else {
                 NS_LOG_WARN("No ConstellationNodeData found on node " << nodeId);
             }

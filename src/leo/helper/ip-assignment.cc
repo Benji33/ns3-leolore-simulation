@@ -4,15 +4,19 @@
 #include "ns3/string.h"
 #include "ns3/log.h"
 #include "ns3/custom-ipv4-l3-protocol.h"
+#include <sstream>
 
 namespace ns3 {
 namespace leo {
+
+constexpr double speedOfLight = 299792.4580;
 
 NS_LOG_COMPONENT_DEFINE("IpAssignmentHelper");
 
 std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::AssignIpAddresses(
     const std::vector<leo::FileReader::Edge>& edges,
-    std::unordered_map<std::string, Ptr<Node>>& sourceIdNsNodeMap)
+    leo::NetworkState& networkState)
+    //td::unordered_map<std::string, Ptr<Node>>& sourceIdNsNodeMap)
 {
     // Speed of light in km/s
     const double speedOfLight = 299792.4580;
@@ -25,19 +29,19 @@ std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::As
     int min_subnet_counter = 0;
 
     for (const auto& edge : edges) {
-        if (sourceIdNsNodeMap.find(edge.source) == sourceIdNsNodeMap.end()) {
+        auto sourceNode = networkState.GetNodeBySourceId(edge.source);
+        auto targetNode = networkState.GetNodeBySourceId(edge.target);
+
+        if (sourceNode == nullptr) {
             printf("Source node not found: %s\n", edge.source.c_str());
             NS_LOG_ERROR("Source node not found: " << edge.source);
             continue;
         }
-        if (sourceIdNsNodeMap.find(edge.target) == sourceIdNsNodeMap.end()) {
+        if (targetNode == nullptr) {
             printf("Target node not found: %s\n", edge.target.c_str());
             NS_LOG_ERROR("Target node not found: " << edge.target);
             continue;
         }
-
-        auto sourceNode = sourceIdNsNodeMap[edge.source];
-        auto targetNode = sourceIdNsNodeMap[edge.target];
 
         // Consider delay based on distance between nodes
         PointToPointHelper p2p;
@@ -60,42 +64,15 @@ std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::As
             NS_LOG_ERROR("Exceeded maximum number of subnets");
             break;
         }
+
         std::ostringstream subnetStream;
         subnetStream << "10." << maj_subnet_counter << "." << min_subnet_counter << ".0";
-        std::string subnet = subnetStream.str();
-
         ipv4.SetBase(subnetStream.str().c_str(), "255.255.255.0");
         Ipv4InterfaceContainer interfaces = ipv4.Assign(devices);
-        /*if ((edge.source.compare("IRIDIUM 145") == 0) || (edge.target.compare("IRIDIUM 145") == 0)  ||
-            (edge.source.compare("632430d9e1196") == 0) || (edge.target.compare("632430d9e1196") == 0) )
-        {
-            NS_LOG_INFO("Assigned IP addresses for link:");
-            NS_LOG_INFO("  Source (" << edge.source << "): " << interfaces.GetAddress(0));
-            NS_LOG_INFO("  Target (" << edge.target << "): " << interfaces.GetAddress(1));
-        }*/
+
         // Store the assigned IP addresses of the connection
         m_nodeToNodeIpMap[edge.source][edge.target] = {interfaces.GetAddress(0), interfaces.GetAddress(1)};
         m_nodeToNodeIpMap[edge.target][edge.source] = {interfaces.GetAddress(1), interfaces.GetAddress(0)};
-
-        // Notify the routing protocols on Source & Target nodes to update their next hop output device mapping
-        /*Ptr<Ipv4> ipv4Source = sourceNode->GetObject<Ipv4>();
-        Ptr<leo::CustomRoutingProtocol> routingSource = DynamicCast<leo::CustomRoutingProtocol>(ipv4Source->GetRoutingProtocol());
-        if (routingSource) {
-            routingSource->AddNextHop(interfaces.GetAddress(1), ipv4Source->GetInterfaceForDevice(devices.Get(0)));
-        }
-
-        Ptr<Ipv4> ipv4Target = targetNode->GetObject<Ipv4>();
-        Ptr<leo::CustomRoutingProtocol> routingTarget = DynamicCast<leo::CustomRoutingProtocol>(ipv4Target->GetRoutingProtocol());
-        if (routingTarget) {
-            routingTarget->AddNextHop(interfaces.GetAddress(0), ipv4Target->GetInterfaceForDevice(devices.Get(1)));
-        }*/
-        /*if (edge.source == "IRIDIUM 145" || edge.target == "IRIDIUM 145" ||
-            edge.source == "632430d9e1196" || edge.target == "632430d9e1196")
-        {
-            NS_LOG_INFO("Assigned IP addresses for link:");
-            NS_LOG_INFO("  Source (" << edge.source << "): " << interfaces.GetAddress(0));
-            NS_LOG_INFO("  Target (" << edge.target << "): " << interfaces.GetAddress(1));
-        }*/
 
         Ipv4Address srcIp = interfaces.GetAddress(0);
         Ipv4Address dstIp = interfaces.GetAddress(1);
@@ -103,6 +80,8 @@ std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::As
         nodeIdToIpMap[edge.source].push_back(srcIp);
         nodeIdToIpMap[edge.target].push_back(dstIp);
 
+        Ptr<Channel> channel = devices.Get(0)->GetChannel();
+        networkState.RegisterLink(edge.source, edge.target, devices.Get(0), devices.Get(1), channel, srcIp, dstIp);
 
         min_subnet_counter++;
         if (min_subnet_counter == 255) {
@@ -113,6 +92,61 @@ std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::As
 
     return nodeIdToIpMap;
 }
+
+void IpAssignmentHelper::PrecreateAllLinks(const std::map<std::pair<std::string, std::string>, double>& allLinks, NetworkState& networkState) {
+    Ipv4AddressHelper ipv4;
+    int maj_subnet_counter = 1;
+    int min_subnet_counter = 0;
+
+    for (const auto& [link, weight] : allLinks) {
+        const std::string& sourceId = link.first;
+        const std::string& targetId = link.second;
+
+        Ptr<Node> sourceNode = networkState.GetNodeBySourceId(sourceId);
+        Ptr<Node> targetNode = networkState.GetNodeBySourceId(targetId);
+
+        if (!sourceNode || !targetNode) {
+            NS_LOG_WARN("Nodes not found for link: " << sourceId << " ↔ " << targetId);
+            continue;
+        }
+
+        // Get Delay
+        double delayInSeconds = weight / speedOfLight;
+        std::ostringstream delayStream;
+         // Delay in milliseconds
+        delayStream << (delayInSeconds * 1e3) << "ms";
+
+        // Create the link
+        PointToPointHelper p2p;
+        p2p.SetDeviceAttribute("DataRate", StringValue("10Gbps"));
+        p2p.SetChannelAttribute("Delay", StringValue(delayStream.str()));
+
+        NetDeviceContainer devices = p2p.Install(sourceNode, targetNode);
+
+        // Assign IP addresses
+        if (maj_subnet_counter > 255) {
+            NS_LOG_ERROR("Exceeded maximum number of subnets");
+            break;
+        }
+        std::ostringstream subnetStream;
+        subnetStream << "10." << maj_subnet_counter << "." << min_subnet_counter << ".0";
+        ipv4.SetBase(subnetStream.str().c_str(), "255.255.255.0");
+        Ipv4InterfaceContainer interfaces = ipv4.Assign(devices);
+        //NS_LOG_INFO("Assigned IP addresses: " << interfaces.GetAddress(0) << " and " << interfaces.GetAddress(1));
+        // Register the link in NetworkState
+        Ptr<Channel> channel = devices.Get(0)->GetChannel();
+        networkState.RegisterLink(sourceId, targetId, devices.Get(0), devices.Get(1), channel, interfaces.GetAddress(0), interfaces.GetAddress(1));
+
+        // Update subnet counters
+        min_subnet_counter++;
+        if (min_subnet_counter == 255) {
+            maj_subnet_counter++;
+            min_subnet_counter = 0;
+        }
+    }
+}
+
+
 std::pair<Ipv4Address, Ipv4Address> IpAssignmentHelper::GetIpPair(const std::string& sourceId, const std::string& targetId) const {
     auto sourceIt = m_nodeToNodeIpMap.find(sourceId);
     if (sourceIt != m_nodeToNodeIpMap.end()) {

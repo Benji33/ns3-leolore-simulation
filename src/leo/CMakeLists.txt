@@ -4,13 +4,16 @@ build_lib(
   helper/file-reader.cc
   helper/ip-assignment.cc
   helper/routing-manager.cc
-  helper/switching-forwarder.cc
+  helper/topology-manager.cc
   model/custom-ipv4-l3-protocol.cc
+  model/network-state.cc
   HEADER_FILES
     helper/file-reader.h
     helper/ip-assignment.h
     helper/routing-manager.h
-    helper/switching-forwarder.h
-    model/custom-node-data.h
+    helper/topology-manager.h
+    helper/ipv4-address-hash.h
+    model/constellation-node-data.h
     model/custom-ipv4-l3-protocol.h
+    model/network-state.h
   )

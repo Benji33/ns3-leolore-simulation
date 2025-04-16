@@ -3,6 +3,7 @@
 #include <fstream>
 #include "ns3/log.h"
 #include <nlohmann/json.hpp> // Include the JSON library
+#include <set>
 
 namespace ns3
 {
@@ -16,12 +17,12 @@ using json = nlohmann::json;
 std::chrono::_V2::system_clock::time_point FileReader::parseTimestampToTimePoint(const std::string& timestampStr) {
     std::tm tm = {};
     std::istringstream ss(timestampStr);
-    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
+    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S"); //"2025-03-21T11:20:55"
     if (ss.fail()) {
         throw std::runtime_error("Failed to parse timestamp: " + timestampStr);
     }
 
-    auto timeT = std::mktime(&tm);
+    auto timeT = timegm(&tm);
     return std::chrono::_V2::system_clock::from_time_t(timeT);
 }
 
@@ -143,6 +144,34 @@ void FileReader::ReadConstellationEvents(const std::string& filename, std::chron
         }
     }
 }
+std::map<std::pair<std::string, std::string>, double> FileReader::GetAllUniqueLinks() const {
+    std::map<std::pair<std::string, std::string>, double> uniqueLinks;
+
+    // Initial Edges
+    for (const auto& edge : edges) {
+        // Ensure uniqueness by always storing the pair in sorted order (source < target)
+        std::pair<std::string, std::string> link = (edge.source < edge.target)
+                                                       ? std::make_pair(edge.source, edge.target)
+                                                       : std::make_pair(edge.target, edge.source);
+
+        // Insert or update the weight for the link
+        uniqueLinks[link] = edge.weight;
+    }
+    //events
+    for (const auto& [time, events] : constellation_events_map) {
+        for (const auto& event : events) {
+            if (event.action == ConstellationEvent::LINK_UP) {
+                std::pair<std::string, std::string> link = (event.from < event.to)
+                                                       ? std::make_pair(event.from, event.to)
+                                                       : std::make_pair(event.to, event.from);
+
+                uniqueLinks[link] = event.weight;
+            };
+        }
+
+    }
+    return uniqueLinks;
+}
 
 void FileReader::printGraph() const {
     std::cout << "Start Time: " << starttime << std::endl;
@@ -193,7 +222,25 @@ void FileReader::printSwitchtingTables() const {
         std::cout << "---------------------------------" << std::endl;
     }
 }
+void FileReader::printConstellationEvents() const {
+    if (constellation_events_map.empty()) {
+        std::cout << "No constellation events available." << std::endl;
+        return;
+    }
 
+    std::cout << "Constellation Events:" << std::endl;
+    for (const auto& [time, events] : constellation_events_map) {
+        std::cout << "Time: " << time << " seconds" << std::endl;
+        for (const auto& event : events) {
+            std::string actionStr = (event.action == ConstellationEvent::Action::LINK_UP) ? "LINK_UP" : "LINK_DOWN";
+            std::cout << "  Action: " << actionStr
+                      << ", From: " << event.from
+                      << ", To: " << event.to
+                      << ", Weight: " << event.weight
+                      << std::endl;
+        }
+    }
+}
 
 } // namespace leo
 } // namespace ns3

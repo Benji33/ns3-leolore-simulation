@@ -1,11 +1,9 @@
-#ifndef CUSTOM_NODE_DATA_H
-#define CUSTOM_NODE_DATA_H
+#ifndef CONSTELLATION_NODE_DATA_H
+#define CONSTELLATION_NODE_DATA_H
 
 #include "ns3/object.h"
 #include <string>
 #include "ns3/routing-manager.h"
-
-using ns3::leo::SwitchingTable;
 
 namespace ns3
 {
@@ -28,8 +26,8 @@ ConstellationNodeData() : m_switchingTable() {}
     void SetOrbit(uint8_t orbit) { m_orbit = orbit; }
     uint8_t GetOrbit() const { return m_orbit; }
 
-    void SetSwitchingTable(const SwitchingTable& table) {m_switchingTable = table; }
-    const SwitchingTable& GetSwitchingTable() const { return m_switchingTable; }
+    void SetSwitchingTable(const ns3::leo::SwitchingTable& table) {m_switchingTable = table; }
+    const ns3::leo::SwitchingTable& GetSwitchingTable() const { return m_switchingTable; }
 
     static TypeId GetTypeId() {
         static TypeId tid = TypeId("ConstellationNodeData")
@@ -43,7 +41,7 @@ private:
     std::string m_type;
     std::string m_town;
     uint8_t m_orbit;
-    SwitchingTable m_switchingTable;
+    ns3::leo::SwitchingTable m_switchingTable;
 };
 
 } // namespace leo
