@@ -5,15 +5,19 @@ build_lib(
   helper/ip-assignment.cc
   helper/routing-manager.cc
   helper/topology-manager.cc
+  helper/traffic-manager.cc
   model/custom-ipv4-l3-protocol.cc
   model/network-state.cc
+  model/custom-on-off-application.cc
   HEADER_FILES
     helper/file-reader.h
     helper/ip-assignment.h
     helper/routing-manager.h
     helper/topology-manager.h
     helper/ipv4-address-hash.h
+    helper/traffic-manager.h
     model/constellation-node-data.h
     model/custom-ipv4-l3-protocol.h
     model/network-state.h
+    model/custom-on-off-application.h
   )

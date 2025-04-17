@@ -14,6 +14,7 @@
 #include <map>
 #include "ns3/ip-assignment.h"
 #include "ns3/network-state.h"
+#include "ns3/traffic-manager.h"
 
 namespace ns3 {
 namespace leo {
@@ -22,7 +23,7 @@ class CustomRoutingProtocol : public Ipv4RoutingProtocol {
 public:
     static TypeId GetTypeId();
     CustomRoutingProtocol() = default;
-    CustomRoutingProtocol(leo::NetworkState &networkState, Ptr<Node> m_node);
+    CustomRoutingProtocol(leo::NetworkState &networkState, Ptr<Node> m_node, leo::TrafficManager &trafficManager);
     virtual ~CustomRoutingProtocol();
 
     // Called when a packet is sent out. Input is not necessarily called before if packet is created on node itself (by an application)
@@ -61,6 +62,7 @@ private:
     // map to store the next hop ip to output device ip
     std::map<Ipv4Address, Ptr<NetDevice>> m_nextHopToDeviceMap;
     leo::NetworkState& m_networkState;
+    leo::TrafficManager& m_trafficManager;
 };
 
 } // namespace leo

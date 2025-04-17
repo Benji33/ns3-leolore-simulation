@@ -12,9 +12,12 @@
 #include "ns3/constant-position-mobility-model.h"
 #include "ns3/custom-ipv4-l3-protocol.h"
 #include "ns3/topology-manager.h"
+#include "ns3/traffic-manager.h"
+#include <unordered_set>
 #include <ctime>
 #include <chrono>
 #include <iomanip>
+#include <boost/functional/hash.hpp>
 
 using namespace ns3;
 
@@ -33,6 +36,8 @@ int main(int argc, char *argv[]) {
     LogComponentEnable("RoutingManager", LOG_LEVEL_INFO);
     LogComponentEnable("FileReader", LOG_LEVEL_INFO);
     LogComponentEnable("NetworkState", LOG_LEVEL_INFO);
+    LogComponentEnable("TrafficManager", LOG_LEVEL_INFO);
+
     //LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_INFO);
 
     std::string gs1Id = "632430d9e1196";
@@ -57,6 +62,8 @@ int main(int argc, char *argv[]) {
 
     reader.ReadConstellationEvents("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/events.json", simulationStart);
     //reader.printConstellationEvents();
+
+    reader.ReadTrafficFromJson("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/traffic.json");
 
     // Step 2: Create containers & nodes for ns-3 nodes
     // Map source IDs to ns-3 nodes
@@ -119,6 +126,13 @@ int main(int argc, char *argv[]) {
     if (!nodeFound) {
         NS_LOG_ERROR("Node with source ID " << targetSourceId << " is NOT present in the NodeContainer.");
     }
+    // Traffic settings
+    for (const auto& traffic : reader.GetTraffic()) {
+        NS_LOG_INFO("Traffic: " << traffic.src_node_id << " → " << traffic.dst_node_id << ", Protocol: " << traffic.protocol
+                                << ", Start Time: " << traffic.start_time << ", Duration: " << traffic.duration
+                                << ", Packet Size: " << traffic.packet_size << ", Rate: " << traffic.rate);
+    }
+    leo::TrafficManager trafficManager(reader.GetTraffic(), networkState);
 
     internetStack.Install(networkState.GetNodes());
 
@@ -127,13 +141,17 @@ int main(int argc, char *argv[]) {
     std::unordered_map<std::string, Ptr<leo::CustomRoutingProtocol>> customRoutingProtocols;
     for (const auto& [srcId, ns3Id] : networkState.GetSourceIdToNs3Id()) {
         Ptr<leo::CustomRoutingProtocol> customRouting = CreateObject<leo::CustomRoutingProtocol>(networkState,
-                                                                                                networkState.GetNodeBySourceId(srcId));
+                                                                                                networkState.GetNodeBySourceId(srcId),
+                                                                                                trafficManager);
         Ptr<Ipv4> ipv4 = networkState.GetNodeBySourceId(srcId)->GetObject<Ipv4>();
         if (ipv4) {
             customRouting->SetIpv4(ipv4);
             ipv4->SetRoutingProtocol(customRouting);
             customRoutingProtocols[srcId] = customRouting; // Store the protocol for later use
             // NS_LOG_INFO("Custom routing protocol attached to node " << nodeId);
+            // Disable ICMPv4
+            //ipv4->SetAttribute("Icmp", BooleanValue(false));
+            //ipv4->SetAttribute("SendIcmpv4PortUnreachable", BooleanValue(false));
         }
     }
 
@@ -144,6 +162,30 @@ int main(int argc, char *argv[]) {
         ipAssignmentHelper.AssignIpAddresses(reader.GetEdges(), networkState);
     */
     ipAssignmentHelper.PrecreateAllLinks(reader.GetAllUniqueLinks(), networkState);
+
+    // Disable links that are not active at the start of the simulation
+    std::vector<ns3::leo::FileReader::Edge> edges = reader.GetEdges(); // Get edges from the FileReader
+    std::unordered_set<std::pair<std::string, std::string>, boost::hash<std::pair<std::string, std::string>>> edgeSet;
+
+    // Populate a set for quick lookup of valid edges
+    for (const auto& edge : edges) {
+        edgeSet.insert({edge.source, edge.target});
+        edgeSet.insert({edge.target, edge.source}); // Include reverse direction for undirected links
+    }
+
+    // Iterate through all links in the NetworkState
+    for (const auto& link : networkState.GetActiveLinks()) {
+        const auto& srcId = link.first;
+        const auto& dstId = link.second;
+
+        // Check if the link exists in the edges vector
+        if (edgeSet.find({srcId, dstId}) == edgeSet.end() && edgeSet.find({dstId, srcId}) == edgeSet.end()) {
+            // Disable the link if it is not in the edges vector
+            networkState.DisableLink(srcId, dstId);
+            NS_LOG_DEBUG("Disabled link between " << srcId << " and " << dstId);
+        }
+    }
+
     // Step 6: Resolve Switching tables = map node ids to IP addresses
     leo::RoutingManager routingManager;
     routingManager.ResolveSwitchingTables(reader.GetRawSwitchingTables(),
@@ -195,19 +237,19 @@ int main(int argc, char *argv[]) {
         NS_LOG_INFO("IP: " << ip << ", Node ID: " << nodeId);
     }*/
    // Step 7: Install a UDP server on gs2
-   uint16_t port = 19;
+   /*uint16_t port = 19;
    UdpEchoServerHelper echoServer(port);
     ApplicationContainer serverApps = echoServer.Install(gs2);
     serverApps.Start(Seconds(1.0));
     serverApps.Stop(Seconds(10.0));
-
+    */
     // Step 8: Install a UDP client on gs1
     /*UdpEchoClientHelper echoClient(gs2Address, port);
     echoClient.SetAttribute("MaxPackets", UintegerValue(1));
     echoClient.SetAttribute("Interval", TimeValue(Seconds(1.0)));
     echoClient.SetAttribute("PacketSize", UintegerValue(1024));
     */
-   Ptr<Socket> clientSocket = Socket::CreateSocket(gs1, UdpSocketFactory::GetTypeId());
+   /*Ptr<Socket> clientSocket = Socket::CreateSocket(gs1, UdpSocketFactory::GetTypeId());
 
    // Get gs1's Ipv4 object and bind the socket to the correct interface
 
@@ -229,14 +271,18 @@ int main(int argc, char *argv[]) {
    Simulator::Schedule(Seconds(2.0), [clientSocket]() {
        Ptr<Packet> packet = Create<Packet>(1024);  // 1024-byte payload
        clientSocket->Send(packet);
-   });
-   Simulator::Schedule(Seconds(2.06), [&networkState]() {networkState.DisableLink("IRIDIUM 134", "IRIDIUM 145");});
+   });*/
+   //Simulator::Schedule(Seconds(2.06), [&networkState]() {networkState.DisableLink("IRIDIUM 134", "IRIDIUM 145");});
     //clientApp.Start(Seconds(2.0));
     //clientApp.Stop(Seconds(10.0));
 
     // Step 9: Set up global routing for now
     //Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
+    // Step 9: Set up traffic manager
+    //print traffic
+
+    trafficManager.ScheduleTraffic();
     // Set up animation for nodes
     AnimationInterface anim("leolore-simulator.xml");
     anim.EnablePacketMetadata(true);

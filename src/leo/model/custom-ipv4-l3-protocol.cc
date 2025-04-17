@@ -3,6 +3,7 @@
 #include "ns3/ipv4-route.h"
 #include "ns3/inet-socket-address.h"
 #include "ns3/constellation-node-data.h"
+#include "ns3/custom-on-off-application.h"
 
 namespace ns3 {
 namespace leo {
@@ -17,8 +18,8 @@ TypeId CustomRoutingProtocol::GetTypeId() {
     return tid;
 }
 
-CustomRoutingProtocol::CustomRoutingProtocol(leo::NetworkState &networkState, Ptr<Node> node)
-: m_node(node), m_networkState(networkState) {}
+CustomRoutingProtocol::CustomRoutingProtocol(leo::NetworkState &networkState, Ptr<Node> node, leo::TrafficManager &trafficManager)
+: m_node(node), m_networkState(networkState), m_trafficManager(trafficManager) {}
 
 CustomRoutingProtocol::~CustomRoutingProtocol() {}
 
@@ -29,8 +30,14 @@ void CustomRoutingProtocol::SetSwitchingTable(const SwitchingTable& table) {
 Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4Header& header,
                                                    Ptr<NetDevice> oif, Socket::SocketErrno& sockerr) {
     Ipv4Address dst = header.GetDestination();
-    NS_LOG_INFO("RouteOutput called for destination: " << dst);
-
+    m_trafficManager.IncreasePacketSentProxy(header);
+    NS_LOG_DEBUG("----------> RouteOutput called for destination: " << dst);
+    leo::PacketIdTag tag;
+    if (packet->PeekPacketTag(tag)) {
+        NS_LOG_DEBUG("Packet Tag ID: " << tag.GetId());
+    } else {
+        NS_LOG_WARN("No PacketIdTag found on the packet.");
+    }
     // Resolve the destination node ID from the IP address
     std::string destNodeId = m_networkState.GetNodeIdForIp(dst);
     if (destNodeId=="") {
@@ -40,13 +47,20 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
     }
 
     // Look up the next hop node ID in the switching table
+
     auto it = m_switchingTable.routing_table.find(destNodeId);
     if (it == m_switchingTable.routing_table.end()) {
         NS_LOG_WARN("No route found for destination node: " << destNodeId);
         sockerr = Socket::ERROR_NOROUTETOHOST;
         return nullptr;
     }
-    std::string currentNodeId = m_node->GetObject<leo::ConstellationNodeData>()->GetSourceId();
+    auto nodeData = m_node->GetObject<leo::ConstellationNodeData>();
+    if (!nodeData) {
+        NS_LOG_ERROR("ConstellationNodeData not found on node");
+        sockerr = Socket::ERROR_NOROUTETOHOST;
+        return nullptr;
+    }
+    std::string currentNodeId = nodeData->GetSourceId();
     std::string nextHopNodeId = it->second;
 
     // Check if link is active
@@ -73,7 +87,7 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
         NS_LOG_ERROR("GetIpAddressForDevice returned an invalid IP address for device: " << link_devices.second);
         return nullptr;
     }
-    NS_LOG_INFO("Next hop IP for destination " << destNodeId << ": " << nextHopDeviceIp);
+    NS_LOG_DEBUG("Next hop IP for destination " << destNodeId << ": " << nextHopDeviceIp);
     // Create the route
     Ptr<Ipv4Route> route = Create<Ipv4Route>();
     route->SetDestination(dst);
@@ -106,7 +120,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
                                         const Ipv4RoutingProtocol::ErrorCallback& ecb)
 {
     Ipv4Address dst = header.GetDestination();
-    NS_LOG_INFO("RouteInput called for destination: " << dst);
+    NS_LOG_DEBUG("----------> RouteInput called for destination: " << dst);
 
     // Get the incoming interface
     uint32_t incoming_interface = m_ipv4->GetInterfaceForDevice(idev);
@@ -115,19 +129,32 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
         return false;
     }
     Ipv4Address incomingIp = m_ipv4->GetAddress(incoming_interface, 0).GetLocal();
-    NS_LOG_INFO("Packet with destination " << dst << " received on interface " << incoming_interface
-                                           << " with IP address: " << incomingIp);
+    NS_LOG_DEBUG("Packet with destination " << dst << " received on interface " << incoming_interface
+                                         << " with IP address: " << incomingIp);
 
-    // Check if the destination is this node
-    if (m_ipv4->IsDestinationAddress(dst, incoming_interface)) {
-        NS_LOG_INFO("Packet is for this node, delivering to application layer...");
-        lcb(packet, header, incoming_interface); // Deliver the packet locally
-        return true;
+
+    //print all ip addresses of this node
+    /*for (uint32_t i = 0; i < m_ipv4->GetNInterfaces(); ++i) {
+        for (uint32_t j = 0; j < m_ipv4->GetNAddresses(i); ++j) {
+            Ipv4Address localAddr = m_ipv4->GetAddress(i, j).GetLocal();
+            std::cout << localAddr << " ";
+        }
+    }*/
+    // Check if the destination is any of the ip addresses of this node
+    for (uint32_t i = 0; i < m_ipv4->GetNInterfaces(); ++i) {
+    for (uint32_t j = 0; j < m_ipv4->GetNAddresses(i); ++j) {
+        Ipv4Address localAddr = m_ipv4->GetAddress(i, j).GetLocal();
+        if (dst == localAddr) {
+            NS_LOG_DEBUG("Packet is for this node (interface " << i << "), delivering to application layer...");
+            m_trafficManager.IncreasePacketReceivedProxy(header);
+            lcb(packet, header, i);
+            return true;
+        }
     }
-
+}
     // Resolve the destination node ID from the IP address
     std::string destNodeId = m_networkState.GetNodeIdForIp(dst);
-    NS_LOG_INFO("Destination node ID for " << dst << ": " << destNodeId);
+    NS_LOG_DEBUG("Destination node ID for " << dst << ": " << destNodeId);
     if (destNodeId == "") {
         NS_LOG_WARN("No node ID found for destination IP: " << dst);
         ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
@@ -141,7 +168,14 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
         ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
         return false;
     }
-    std::string currentNodeId = m_node->GetObject<leo::ConstellationNodeData>()->GetSourceId();
+    auto nodeData = m_node->GetObject<leo::ConstellationNodeData>();
+    if (!nodeData) {
+        NS_LOG_ERROR("ConstellationNodeData not found on node");
+        ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
+        return false;
+    }
+    std::string currentNodeId = nodeData->GetSourceId();
+
     std::string nextHopNodeId = it->second;
 
     if (!m_networkState.IsLinkActive(currentNodeId, nextHopNodeId)) {
@@ -149,7 +183,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
         ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
         return false;
     }
-    NS_LOG_INFO("Next hop node ID for destination " << destNodeId << ": " << nextHopNodeId);
+    NS_LOG_DEBUG("Next hop node ID for destination " << destNodeId << ": " << nextHopNodeId);
 
     // Resolve the next hop IP address and NetDevice
     std::pair<Ptr<NetDevice>, Ptr<NetDevice>> link_devices = m_networkState.GetDevicesForNextHop(currentNodeId, nextHopNodeId);
@@ -169,7 +203,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
         ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
         return false;
     }
-    NS_LOG_INFO("Next hop IP for destination " << destNodeId << ": " << nextHopDeviceIp);
+    NS_LOG_DEBUG("Next hop IP for destination " << destNodeId << ": " << nextHopDeviceIp);
 
     // Create the route
     Ptr<Ipv4Route> route = Create<Ipv4Route>();
@@ -182,7 +216,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
         route->SetOutputDevice(m_ipv4->GetNetDevice(interface));
     } else {
         NS_LOG_WARN("No interface found for next hop: " << nextHopNodeId);
-        NS_LOG_INFO("Listing all interfaces and their IP addresses for this node:");
+        NS_LOG_DEBUG("Listing all interfaces and their IP addresses for this node:");
         for (uint32_t i = 0; i < m_ipv4->GetNInterfaces(); ++i) {
             for (uint32_t j = 0; j < m_ipv4->GetNAddresses(i); ++j) {
                 NS_LOG_INFO("  Interface " << i << ", Address " << j << ": " << m_ipv4->GetAddress(i, j).GetLocal());
@@ -192,7 +226,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
         return false;
     }
 
-    NS_LOG_INFO("Forwarding packet to: " << nextHopDeviceIp);
+    NS_LOG_DEBUG("Forwarding packet to ----------> " << nextHopDeviceIp);
     // Forward the packet using the UnicastForwardCallback
     ucb(route, packet, header);
     return true;

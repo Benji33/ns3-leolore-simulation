@@ -57,6 +57,17 @@ public:
         double weight;
         Action action;
     };
+    struct Traffic {
+        double start_time;
+        std::string src_node_id;
+        std::string dst_node_id;
+        int packet_size;
+        double duration;
+        std::string rate;
+        std::string protocol;
+        int src_port;
+        int dst_port;
+    };
 
     // Constructor
     FileReader() = default;
@@ -74,6 +85,9 @@ public:
     // Events
     void ReadConstellationEvents(const std::string& filename, std::chrono::_V2::system_clock::time_point& startTimeStr);
 
+    // Traffic
+    void ReadTrafficFromJson(const std::string& filename);
+
     // Getters for private members
     const std::vector<std::unique_ptr<Node>>& GetNodes() const { return nodes; }
     const std::vector<Edge>& GetEdges() const { return edges; }
@@ -81,6 +95,7 @@ public:
     std::vector<RawSwitchingTable>& GetRawSwitchingTables() { return raw_switching_tables; }
     const std::map<double, std::vector<ConstellationEvent>>& GetConstellationEvents() const { return constellation_events_map; }
     std::map<std::pair<std::string, std::string>, double> GetAllUniqueLinks() const;
+    const std::vector<Traffic>& GetTraffic() const { return traffic_vector; }
 
     // Visulization
     void printGraph() const;
@@ -93,6 +108,7 @@ private:
     std::vector<Edge> edges;
     std::vector<RawSwitchingTable> raw_switching_tables;
     std::map<double, std::vector<ConstellationEvent>> constellation_events_map;
+    std::vector<Traffic> traffic_vector;
 
     // Map for quick node access by ID
     std::unordered_map<std::string, Node*> node_map;

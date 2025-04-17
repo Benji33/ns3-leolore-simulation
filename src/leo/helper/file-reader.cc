@@ -26,7 +26,7 @@ std::chrono::_V2::system_clock::time_point FileReader::parseTimestampToTimePoint
     return std::chrono::_V2::system_clock::from_time_t(timeT);
 }
 
-double secondsSinceStart(const std::tm& t, const std::tm& start) {
+double FileReader::secondsSinceStart(const std::tm& t, const std::tm& start) {
     auto time1 = std::mktime(const_cast<std::tm*>(&t));
     auto time0 = std::mktime(const_cast<std::tm*>(&start));
     return std::difftime(time1, time0);
@@ -144,6 +144,34 @@ void FileReader::ReadConstellationEvents(const std::string& filename, std::chron
         }
     }
 }
+
+void FileReader::ReadTrafficFromJson(const std::string& filename){
+ std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return;
+    }
+
+    json j;
+    file >> j;
+    for (const auto& traffic_data : j) {
+        Traffic traffic;
+        traffic.start_time = traffic_data["start_time"];
+        traffic.src_node_id = traffic_data["src_node_id"];
+        traffic.dst_node_id = traffic_data["dst_node_id"];
+        traffic.packet_size = traffic_data["packet_size"];
+        traffic.duration = traffic_data["duration"];
+        traffic.rate = traffic_data["rate"];
+        traffic.protocol = traffic_data["protocol"];
+        traffic.src_port = traffic_data["src_port"];
+        traffic.dst_port = traffic_data["dst_port"];
+
+
+        traffic_vector.push_back(traffic);
+    }
+
+}
+
 std::map<std::pair<std::string, std::string>, double> FileReader::GetAllUniqueLinks() const {
     std::map<std::pair<std::string, std::string>, double> uniqueLinks;
 

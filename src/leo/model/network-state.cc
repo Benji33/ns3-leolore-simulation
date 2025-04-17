@@ -102,15 +102,15 @@ LinkInfo NetworkState::GetLinkInfo(std::string srcId, std::string dstId) const {
 }
 std::pair<Ptr<NetDevice>, Ptr<NetDevice>> NetworkState::GetDevicesForNextHop(const std::string& currentNodeId, const std::string& nextHopNodeId) const {
     auto linkInfo = GetLinkInfo(currentNodeId, nextHopNodeId);
-    NS_LOG_INFO("GetDevicesForNextHop: currentNodeId: " << currentNodeId << ", nextHopNodeId: " << nextHopNodeId);
+    //NS_LOG_INFO("GetDevicesForNextHop: currentNodeId: " << currentNodeId << ", nextHopNodeId: " << nextHopNodeId);
 
     if (linkInfo.IsValid()) {
         // Determine the correct devices based on the current node's role
         if (currentNodeId == GetNodeIdForIp(linkInfo.ipA)) {
-            NS_LOG_INFO("Current node is the source, returning deviceA (current node) and deviceB (next hop)");
+            //NS_LOG_INFO("Current node is the source, returning deviceA (current node) and deviceB (next hop)");
             return {linkInfo.deviceA, linkInfo.deviceB}; // deviceA is on the current node, deviceB is on the next hop
         } else if (currentNodeId == GetNodeIdForIp(linkInfo.ipB)) {
-            NS_LOG_INFO("Current node is the destination, returning deviceB (current node) and deviceA (next hop)");
+            //NS_LOG_INFO("Current node is the destination, returning deviceB (current node) and deviceA (next hop)");
             return {linkInfo.deviceB, linkInfo.deviceA}; // deviceB is on the current node, deviceA is on the next hop
         } else {
             NS_LOG_WARN("Current node ID does not match either end of the link.");
@@ -149,7 +149,7 @@ void NetworkState::EnableLink(std::string srcId, std::string dstId, double weigh
     link.isActive = true;
     m_links[{dstId, srcId}].isActive = true;
     m_links[{srcId, dstId}].isActive = true;
-    NS_LOG_INFO("Link between " << srcId << " and " << dstId << " enabled at " << Simulator::Now().GetSeconds());
+    //NS_LOG_INFO("Link between " << srcId << " and " << dstId << " enabled at " << Simulator::Now().GetSeconds());
 
     }
 
@@ -173,7 +173,7 @@ void NetworkState::DisableLink(std::string srcId, std::string dstId) {
     link.isActive = false;
     m_links[{dstId, srcId}].isActive = false;
     m_links[{srcId, dstId}].isActive = false;
-    NS_LOG_INFO("Link between " << srcId << " and " << dstId << " disabled at " << Simulator::Now().GetSeconds());
+    //NS_LOG_INFO("Link between " << srcId << " and " << dstId << " disabled at " << Simulator::Now().GetSeconds());
 }
 
 bool NetworkState::IsLinkActive(std::string srcId, std::string dstId) const {
