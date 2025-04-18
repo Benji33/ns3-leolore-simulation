@@ -30,6 +30,9 @@ void CustomOnOffApplication::Setup(Ptr<Node> node, Ipv4Address dstAddress, uint1
 }
 
 void CustomOnOffApplication::StartApplication() {
+    if (m_appId == 13){
+        NS_LOG_UNCOND("CustomOnOffApplication::StartApplication: AppId 13");
+    }
     NS_LOG_UNCOND("App " << m_appId << " started at " << Simulator::Now());
     m_actualStartTime = Simulator::Now();
     // Set up the socket and connect it

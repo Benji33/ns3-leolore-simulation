@@ -88,13 +88,22 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
         return nullptr;
     }
     NS_LOG_DEBUG("Next hop IP for destination " << destNodeId << ": " << nextHopDeviceIp);
+    if (destNodeId == "632430d9e1105"){ // && nextHopDeviceIp == Ipv4Address(" 10.1.74.2")) {
+        dev_counter++;
+        NS_LOG_DEBUG("dev_counter: " << dev_counter);
+        if (dev_counter == 55)
+       {
+        dev_counter = 0;
+            NS_LOG_DEBUG("ALMOST ERROR");
+        }
+    }
     // Create the route
     Ptr<Ipv4Route> route = Create<Ipv4Route>();
     route->SetDestination(dst);
     route->SetGateway(nextHopDeviceIp);
     route->SetSource(header.GetSource());
 
-    int32_t interface = m_ipv4->GetInterfaceForDevice(link_devices.first);
+        int32_t interface = m_ipv4->GetInterfaceForDevice(link_devices.first);
         if (interface >= 0) {
             route->SetOutputDevice(m_ipv4->GetNetDevice(interface));
         } else {

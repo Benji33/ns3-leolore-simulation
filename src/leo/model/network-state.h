@@ -59,6 +59,7 @@ public:
     bool IsLinkActive(std::string srcId, std::string dstId) const;
     void DisableNode(uint32_t ns3NodeId);
     void SetLinkDelay(uint32_t srcId, uint32_t dstId, Time delay);
+    bool LinkDownCallback(Ptr<NetDevice> device, Ptr<const Packet>, uint16_t, const Address &);
 
 private:
     NodeContainer m_nodes;

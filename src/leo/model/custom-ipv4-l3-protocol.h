@@ -63,6 +63,7 @@ private:
     std::map<Ipv4Address, Ptr<NetDevice>> m_nextHopToDeviceMap;
     leo::NetworkState& m_networkState;
     leo::TrafficManager& m_trafficManager;
+    int dev_counter=0;
 };
 
 } // namespace leo

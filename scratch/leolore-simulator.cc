@@ -30,15 +30,14 @@ int main(int argc, char *argv[]) {
     LogComponentEnable("LeoLoreSimulator", LOG_LEVEL_INFO);
     LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
     LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
-    LogComponentEnable("CustomRoutingProtocol", LOG_LEVEL_INFO);
+    //LogComponentEnable("CustomRoutingProtocol", LOG_LEVEL_DEBUG);
     LogComponentEnable("IpAssignmentHelper", LOG_LEVEL_INFO);
     LogComponentEnable("TopologyManager", LOG_LEVEL_INFO);
     LogComponentEnable("RoutingManager", LOG_LEVEL_INFO);
     LogComponentEnable("FileReader", LOG_LEVEL_INFO);
     LogComponentEnable("NetworkState", LOG_LEVEL_INFO);
     LogComponentEnable("TrafficManager", LOG_LEVEL_INFO);
-
-    //LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_INFO);
+    //LogComponentEnable("DefaultSimulatorImpl", LOG_LEVEL_DEBUG);
 
     std::string gs1Id = "632430d9e1196";
     std::string gs2Id = "632430d9e10d6";
@@ -61,7 +60,7 @@ int main(int argc, char *argv[]) {
     //reader.printSwitchtingTables();
 
     reader.ReadConstellationEvents("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/events.json", simulationStart);
-    //reader.printConstellationEvents();
+    reader.printConstellationEvents();
 
     reader.ReadTrafficFromJson("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/traffic.json");
 

@@ -156,25 +156,29 @@ void NetworkState::EnableLink(std::string srcId, std::string dstId, double weigh
 void NetworkState::DisableLink(std::string srcId, std::string dstId) {
     auto it = m_links.find({srcId, dstId});
     if (it == m_links.end()) {
-        // Check for the reverse link if the original link is not found
         it = m_links.find({dstId, srcId});
         if (it == m_links.end()) {
-            NS_LOG_WARN("No link found between " << srcId << " and " << dstId << " in either direction.");
+            NS_LOG_WARN("No link found between " << srcId << " and " << dstId);
             return;
         }
     }
 
     LinkInfo& link = it->second;
 
-    // Disable receive callbacks
-    link.deviceA->SetReceiveCallback(MakeNullCallback<bool, Ptr<NetDevice>, Ptr<const Packet>, uint16_t, const Address &>());
-    link.deviceB->SetReceiveCallback(MakeNullCallback<bool, Ptr<NetDevice>, Ptr<const Packet>, uint16_t, const Address &>());
+    // Don't remove callback, just make it return false
+    link.deviceA->SetReceiveCallback(MakeCallback(&NetworkState::LinkDownCallback, this));
+    link.deviceB->SetReceiveCallback(MakeCallback(&NetworkState::LinkDownCallback, this));
 
     link.isActive = false;
     m_links[{dstId, srcId}].isActive = false;
     m_links[{srcId, dstId}].isActive = false;
-    //NS_LOG_INFO("Link between " << srcId << " and " << dstId << " disabled at " << Simulator::Now().GetSeconds());
 }
+
+bool NetworkState::LinkDownCallback(Ptr<NetDevice> device, Ptr<const Packet>, uint16_t, const Address &) {
+    NS_LOG_INFO("Packet received on disabled link, dropping.");
+    return false;
+}
+
 
 bool NetworkState::IsLinkActive(std::string srcId, std::string dstId) const {
     auto it = m_links.find({srcId, dstId});
