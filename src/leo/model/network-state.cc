@@ -29,13 +29,10 @@ void NetworkState::RegisterInterfaces(uint32_t ns3NodeId, const std::string& sou
 
 void NetworkState::RegisterLink(std::string srcId, std::string dstId, Ptr<NetDevice> deviceA, Ptr<NetDevice> deviceB, Ptr<Channel> channel,
     Ipv4Address ipA, Ipv4Address ipB) {
-    if (srcId == "632430d9e1196"){
-        NS_LOG_INFO("Registering link: " << srcId << " ↔ " << dstId);
-        NS_LOG_INFO("Device A: " << deviceA << ", IP A: " << ipA);
-        NS_LOG_INFO("Device B: " << deviceB << ", IP B: " << ipB);
-    }
-    m_links[{srcId, dstId}] = {deviceA, deviceB, channel, ipA, ipB, true};
-    m_links[{dstId, srcId}] = {deviceB, deviceA, channel, ipB, ipA, true}; // Think about this
+    auto key = NormalizeKey(srcId, dstId);
+
+    NS_LOG_INFO("Registering link: " << key.first << " ↔ " << key.second);
+    m_links[key] = LinkInfo(deviceA, deviceB, channel, ipA, ipB, true);
 
     m_deviceToIpMap[deviceA] = ipA;
     m_deviceToIpMap[deviceB] = ipB;
@@ -93,15 +90,20 @@ std::vector<std::pair<std::string, std::string>> NetworkState::GetActiveLinks() 
     return activeLinks;
 }
 
-LinkInfo NetworkState::GetLinkInfo(std::string srcId, std::string dstId) const {
-    auto it = m_links.find({srcId, dstId});
+const LinkInfo& NetworkState::GetLinkInfo(const std::string& srcId, const std::string& dstId) const {
+    auto key = NormalizeKey(srcId, dstId);
+    auto it = m_links.find(key);
     if (it != m_links.end()) {
         return it->second;
     }
-    return LinkInfo();
+
+    // If the link is not found, throw an exception or return a static invalid LinkInfo
+    static const LinkInfo invalidLinkInfo; // Default-constructed invalid LinkInfo
+    return invalidLinkInfo;
 }
+
 std::pair<Ptr<NetDevice>, Ptr<NetDevice>> NetworkState::GetDevicesForNextHop(const std::string& currentNodeId, const std::string& nextHopNodeId) const {
-    auto linkInfo = GetLinkInfo(currentNodeId, nextHopNodeId);
+    const LinkInfo& linkInfo = GetLinkInfo(currentNodeId, nextHopNodeId);
     //NS_LOG_INFO("GetDevicesForNextHop: currentNodeId: " << currentNodeId << ", nextHopNodeId: " << nextHopNodeId);
 
     if (linkInfo.IsValid()) {
@@ -120,24 +122,21 @@ std::pair<Ptr<NetDevice>, Ptr<NetDevice>> NetworkState::GetDevicesForNextHop(con
     NS_LOG_ERROR("Invalid link or no devices found for currentNodeId: " << currentNodeId << " and nextHopNodeId: " << nextHopNodeId);
     return {nullptr, nullptr}; // Return null pointers if no valid devices are found
 }
+
 void NetworkState::EnableLink(std::string srcId, std::string dstId, double weight) {
-    auto it = m_links.find({srcId, dstId});
+    if (dstId =="632430d9e1131"){
+        NS_LOG_DEBUG("Enabling link: " << srcId << " ↔ " << dstId);
+    }
+    auto key = NormalizeKey(srcId, dstId);
+
+    auto it = m_links.find(key);
     if (it == m_links.end()) {
-        // Check for the reverse link if the original link is not found
-        it = m_links.find({dstId, srcId});
-        if (it == m_links.end()) {
-            NS_LOG_WARN("Tried to enable a link that was not pre-registered: " << srcId << " → " << dstId);
-            return;
-        }
+        NS_LOG_WARN("Tried to enable a link that was not pre-registered: " << key.first << " → " << key.second);
+        return;
     }
 
     LinkInfo& link = it->second;
 
-    // Get the Ipv4 object associated with the node
-    Ptr<Ipv4L3Protocol> ipv4A = DynamicCast<Ipv4L3Protocol>(link.deviceA->GetNode()->GetObject<Ipv4>());
-    Ptr<Ipv4L3Protocol> ipv4B = DynamicCast<Ipv4L3Protocol>(link.deviceB->GetNode()->GetObject<Ipv4>());
-
-    // Set delay on the channel
     double delayInSeconds = weight / speedOfLight;
     std::ostringstream delayStream;
     delayStream << (delayInSeconds * 1e3) << "ms";
@@ -147,55 +146,53 @@ void NetworkState::EnableLink(std::string srcId, std::string dstId, double weigh
     }
 
     link.isActive = true;
-    m_links[{dstId, srcId}].isActive = true;
-    m_links[{srcId, dstId}].isActive = true;
-    //NS_LOG_INFO("Link between " << srcId << " and " << dstId << " enabled at " << Simulator::Now().GetSeconds());
+    NS_LOG_DEBUG("Link between " << srcId << " and " << dstId << " enabled at " << Simulator::Now().GetSeconds());
 
     }
 
 void NetworkState::DisableLink(std::string srcId, std::string dstId) {
-    auto it = m_links.find({srcId, dstId});
+    auto key = NormalizeKey(srcId, dstId);
+    auto it = m_links.find(key);
     if (it == m_links.end()) {
-        it = m_links.find({dstId, srcId});
-        if (it == m_links.end()) {
-            NS_LOG_WARN("No link found between " << srcId << " and " << dstId);
-            return;
-        }
+        NS_LOG_WARN("No link found between " << key.first << " and " << key.second);
+        return;
     }
 
     LinkInfo& link = it->second;
 
-    // Don't remove callback, just make it return false
-    link.deviceA->SetReceiveCallback(MakeCallback(&NetworkState::LinkDownCallback, this));
-    link.deviceB->SetReceiveCallback(MakeCallback(&NetworkState::LinkDownCallback, this));
+    // Don't change the reeceive callback since its hard to undo. Just stick to link active or inactive
+    //link.deviceA->SetReceiveCallback(MakeCallback(&NetworkState::LinkDownCallback, this));
+    //link.deviceB->SetReceiveCallback(MakeCallback(&NetworkState::LinkDownCallback, this));
 
     link.isActive = false;
-    m_links[{dstId, srcId}].isActive = false;
-    m_links[{srcId, dstId}].isActive = false;
+    NS_LOG_DEBUG("Link between " << srcId << " and " << dstId << " disabled at " << Simulator::Now().GetSeconds());
 }
 
 bool NetworkState::LinkDownCallback(Ptr<NetDevice> device, Ptr<const Packet>, uint16_t, const Address &) {
-    NS_LOG_INFO("Packet received on disabled link, dropping.");
+    NS_LOG_DEBUG("Packet received on disabled link, dropping.");
     return false;
 }
-
 
 bool NetworkState::IsLinkActive(std::string srcId, std::string dstId) const {
-    auto it = m_links.find({srcId, dstId});
+    /*if (dstId =="632430d9e1167" || srcId == "632430d9e1167"){
+        NS_LOG_INFO("Checking link activity between: " << srcId << " ↔ " << dstId << " at " << Simulator::Now().GetSeconds());
+    }*/
+    auto key = NormalizeKey(srcId, dstId);
+    auto it = m_links.find(key);
     if (it != m_links.end()) {
+        //NS_LOG_DEBUG("Checking link activity between: " << key.first << " ↔ " << key.second << " at " << Simulator::Now().GetSeconds()
+        //             << " - Active: " << it->second.isActive);
         return it->second.isActive;
     }
 
-    // Check the reverse link if the original link is not found
-    it = m_links.find({dstId, srcId});
-    if (it != m_links.end()) {
-        return it->second.isActive;
-    }
-
-    // If neither link is found, return false
-    NS_LOG_WARN("No link found between " << srcId << " and " << dstId);
+    NS_LOG_DEBUG("No link found between " << key.first << " and " << key.second);
     return false;
 }
+
+std::pair<std::string, std::string> NetworkState::NormalizeKey(const std::string& a, const std::string& b) const {
+    return (a < b) ? std::make_pair(a, b) : std::make_pair(b, a);
+}
+
 void NetworkState::DisableNode(uint32_t ns3NodeId){
     return;
 }

@@ -16,21 +16,36 @@ namespace leo {
 
 NS_LOG_COMPONENT_DEFINE("TrafficManager");
 
-TrafficManager::TrafficManager(const std::vector<Traffic>& trafficVector, NetworkState& networkState)
-    : m_trafficVector(trafficVector), m_networkState(networkState) {}
+TrafficManager::TrafficManager(const std::vector<Traffic>& trafficVector)
+    : m_trafficVector(trafficVector), m_networkState(NetworkState::GetInstance()) {}
 
-void TrafficManager::PrintTrafficSummary() const {
-    NS_LOG_UNCOND("Traffic Summary:");
-    for (const auto& [key, stats] : m_trafficStats) {
-        NS_LOG_UNCOND("From: " << key.first << " To: " << key.second
-                       << " Sent: " << stats.packetsSent
-                       << " Received: " << stats.packetsReceived);
+    void TrafficManager::PrintTrafficSummary() const {
+        NS_LOG_UNCOND("Traffic Summary:");
+
+        uint64_t totalPacketsSent = 0;
+        uint64_t totalPacketsReceived = 0;
+
+        for (const auto& [key, stats] : m_trafficStats) {
+            NS_LOG_UNCOND("From: " << key.first << " To: " << key.second
+                           << " Sent: " << stats.packetsSent
+                           << " Received: " << stats.packetsReceived);
+            totalPacketsSent += stats.packetsSent;
+            totalPacketsReceived += stats.packetsReceived;
+        }
+
+        NS_LOG_UNCOND("Total Packets Sent: " << totalPacketsSent);
+        NS_LOG_UNCOND("Total Packets Received: " << totalPacketsReceived);
+        NS_LOG_UNCOND("Ratio: " << (totalPacketsReceived / static_cast<double>(totalPacketsSent)) * 100 << "%");
     }
-}
 
 void TrafficManager::ScheduleTraffic() {
     int id_counter = 0;
     for (const auto& traffic : m_trafficVector) {
+        //DEBUG 632430d9e1141 to 632430d9e1167
+        /*if((traffic.src_node_id != "632430d9e1141") || (traffic.dst_node_id != "632430d9e1167")){
+            continue;
+        }*/
+        NS_LOG_DEBUG("Scheduling traffic from " << traffic.src_node_id << " to " << traffic.dst_node_id);
         Simulator::Schedule(Seconds(traffic.start_time), &TrafficManager::ScheduleTrafficEvent, this, traffic, id_counter);
         id_counter++;
     }
@@ -81,6 +96,7 @@ void TrafficManager::ScheduleTrafficEvent(const Traffic& traffic, int counter) {
     }
     std::pair<Ipv4Address, Ipv4Address> flowKey = std::make_pair(srcAddress, dstAddress);
     NS_LOG_INFO("Scheduling traffic from " << srcAddress << " to " << dstAddress);
+    NS_LOG_INFO("Scheduling traffic from " << traffic.src_node_id << " to " << traffic.dst_node_id);
     m_trafficStats[flowKey] = TrafficStats{};
     // Configure custom OnOff application (instead of using OnOffHelper)
     Ptr<CustomOnOffApplication> customApp = CreateObject<CustomOnOffApplication>();

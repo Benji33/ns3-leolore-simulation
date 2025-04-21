@@ -3,6 +3,8 @@
 
 #include "ns3/object.h"
 #include <string>
+#include <vector>
+#include <algorithm>
 #include "ns3/routing-manager.h"
 
 namespace ns3
@@ -12,7 +14,7 @@ namespace leo
 
 class ConstellationNodeData : public Object {
 public:
-ConstellationNodeData() : m_switchingTable() {}
+    ConstellationNodeData() : m_switchingTables() {}
 
     void SetSourceId(std::string id) { m_sourceId = id; }
     std::string GetSourceId() const { return m_sourceId; }
@@ -26,8 +28,24 @@ ConstellationNodeData() : m_switchingTable() {}
     void SetOrbit(uint8_t orbit) { m_orbit = orbit; }
     uint8_t GetOrbit() const { return m_orbit; }
 
-    void SetSwitchingTable(const ns3::leo::SwitchingTable& table) {m_switchingTable = table; }
-    const ns3::leo::SwitchingTable& GetSwitchingTable() const { return m_switchingTable; }
+    // Add a SwitchingTable and keep the list sorted by valid_from
+    void AddSwitchingTable(const ns3::leo::SwitchingTable& table) {
+        m_switchingTables.push_back(table);
+        std::sort(m_switchingTables.begin(), m_switchingTables.end(),
+                  [](const ns3::leo::SwitchingTable& a, const ns3::leo::SwitchingTable& b) {
+                      return a.valid_from < b.valid_from;
+                  });
+    }
+
+    // Get all SwitchingTables
+    const std::vector<ns3::leo::SwitchingTable>& GetSwitchingTables() const { return m_switchingTables; }
+    std::vector<std::reference_wrapper<const SwitchingTable>> GetSwitchingTablesRef() const {
+        std::vector<std::reference_wrapper<const SwitchingTable>> tableRefs;
+        for (const auto& table : m_switchingTables) {
+            tableRefs.push_back(std::cref(table));
+        }
+        return tableRefs;
+    }
 
     static TypeId GetTypeId() {
         static TypeId tid = TypeId("ConstellationNodeData")
@@ -41,10 +59,10 @@ private:
     std::string m_type;
     std::string m_town;
     uint8_t m_orbit;
-    ns3::leo::SwitchingTable m_switchingTable;
+    std::vector<ns3::leo::SwitchingTable> m_switchingTables;
 };
 
 } // namespace leo
 } // namespace ns3
 
-#endif // CUSTOM_NODE_DATA_H
+#endif // CONSTELLATION_NODE_DATA_H

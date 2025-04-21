@@ -23,7 +23,7 @@ class TrafficManager {
     };
 
 public:
-    TrafficManager(const std::vector<Traffic>& trafficVector, NetworkState& networkState);
+    TrafficManager(const std::vector<Traffic>& trafficVector);
     void PrintTrafficSummary() const;
     void ScheduleTraffic();
     void IncreasePacketSentProxy(Ipv4Header ipv4Header);

@@ -1,9 +1,10 @@
-#include "file-reader.h" // Include the header file
+#include "file-reader.h"
 #include <iostream>
 #include <fstream>
 #include "ns3/log.h"
-#include <nlohmann/json.hpp> // Include the JSON library
+#include <nlohmann/json.hpp>
 #include <set>
+#include <filesystem>
 
 namespace ns3
 {
@@ -15,15 +16,29 @@ NS_LOG_COMPONENT_DEFINE("FileReader");
 using json = nlohmann::json;
 
 std::chrono::_V2::system_clock::time_point FileReader::parseTimestampToTimePoint(const std::string& timestampStr) {
+    // Split the timestamp into the main part and the fractional seconds
+    std::string mainPart = timestampStr.substr(0, timestampStr.find('.')); // Extract "2025-03-21T11:20:39"
+    std::string fractionalPart = timestampStr.substr(timestampStr.find('.') + 1, 6); // Extract "970771"
+
+    // Parse the main part of the timestamp
     std::tm tm = {};
-    std::istringstream ss(timestampStr);
-    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S"); //"2025-03-21T11:20:55"
+    std::istringstream ss(mainPart);
+    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
     if (ss.fail()) {
         throw std::runtime_error("Failed to parse timestamp: " + timestampStr);
     }
 
+    // Convert to time_t
     auto timeT = timegm(&tm);
-    return std::chrono::_V2::system_clock::from_time_t(timeT);
+
+    // Convert to a time_point
+    auto timePoint = std::chrono::_V2::system_clock::from_time_t(timeT);
+
+    // Add the fractional seconds as microseconds
+    int microseconds = std::stoi(fractionalPart);
+    timePoint += std::chrono::microseconds(microseconds);
+
+    return timePoint;
 }
 
 double FileReader::secondsSinceStart(const std::tm& t, const std::tm& start) {
@@ -102,9 +117,26 @@ void FileReader::readSwitchingTableFromJson(const std::string& filename) {
 
         raw_switching_tables.push_back(table);
     }
-
 }
-void FileReader::ReadConstellationEvents(const std::string& filename, std::chrono::_V2::system_clock::time_point& simulationStartTime) {
+
+void FileReader::readAllSwitchingTablesFromFolder(const std::string& foldername) {
+    namespace fs = std::filesystem; // Use the filesystem namespace
+
+    try {
+        // Iterate through all files in the folder
+        for (const auto& entry : fs::directory_iterator(foldername)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".json") {
+                // Every json file holds all switching tables for one validity period
+                std::string filename = entry.path().string();
+                NS_LOG_DEBUG("Reading switching table from file: " << filename);
+                readSwitchingTableFromJson(filename);
+            }
+        }
+    } catch (const std::exception& e) {
+        NS_LOG_ERROR("Error reading switching tables from folder: " << e.what());
+    }
+}
+void FileReader::readConstellationEvents(const std::string& filename, std::chrono::_V2::system_clock::time_point& simulationStartTime) {
 
     std::ifstream file(filename);
     if (!file.is_open()) {
@@ -145,7 +177,7 @@ void FileReader::ReadConstellationEvents(const std::string& filename, std::chron
     }
 }
 
-void FileReader::ReadTrafficFromJson(const std::string& filename){
+void FileReader::readTrafficFromJson(const std::string& filename){
  std::ifstream file(filename);
     if (!file.is_open()) {
         std::cerr << "Error: Could not open file " << filename << std::endl;

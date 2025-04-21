@@ -30,12 +30,12 @@ int main(int argc, char *argv[]) {
     LogComponentEnable("LeoLoreSimulator", LOG_LEVEL_INFO);
     LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
     LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
-    //LogComponentEnable("CustomRoutingProtocol", LOG_LEVEL_DEBUG);
+    LogComponentEnable("CustomRoutingProtocol", LOG_LEVEL_INFO);
     LogComponentEnable("IpAssignmentHelper", LOG_LEVEL_INFO);
     LogComponentEnable("TopologyManager", LOG_LEVEL_INFO);
     LogComponentEnable("RoutingManager", LOG_LEVEL_INFO);
     LogComponentEnable("FileReader", LOG_LEVEL_INFO);
-    LogComponentEnable("NetworkState", LOG_LEVEL_INFO);
+    LogComponentEnable("NetworkState", LOG_LEVEL_INFO   );
     LogComponentEnable("TrafficManager", LOG_LEVEL_INFO);
     //LogComponentEnable("DefaultSimulatorImpl", LOG_LEVEL_DEBUG);
 
@@ -44,30 +44,33 @@ int main(int argc, char *argv[]) {
 
     // Step 1: Parse in graph JSON file
     ns3::leo::FileReader reader;
-
     //uint64_t simulationStart = 1742599254; // 2025-03-21T11:20:54
     std::tm tm = {};
     std::istringstream ss("2025-03-21T11:20:54");
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
     std::time_t t = timegm(&tm);
     auto simulationStart = std::chrono::system_clock::from_time_t(t);
+    std::string base_path = "/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/";
+    std::string file_name = "1742556095";
+
 
     //TODO: Get JSON file path through command line argument
-    reader.readGraphFromJson("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/leo_constellation.json");
+    reader.readGraphFromJson(base_path + file_name + "/leo_constellation.json");
     //reader.printGraph();
 
-    reader.readSwitchingTableFromJson("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/switching_tables.json");
+    //reader.readSwitchingTableFromJson("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/switching_tables.json");
+    reader.readAllSwitchingTablesFromFolder(base_path + file_name + "/switching_tables");
     //reader.printSwitchtingTables();
 
-    reader.ReadConstellationEvents("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/events.json", simulationStart);
+    reader.readConstellationEvents(base_path + file_name + "/events.json", simulationStart);
     reader.printConstellationEvents();
 
-    reader.ReadTrafficFromJson("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/traffic.json");
+    reader.readTrafficFromJson(base_path + file_name + "/traffic.json");
 
     // Step 2: Create containers & nodes for ns-3 nodes
     // Map source IDs to ns-3 nodes
     // Create a network state object to manage the network state
-    leo::NetworkState networkState;
+    leo::NetworkState& networkState = leo::NetworkState::GetInstance();
 
 
     NS_LOG_INFO("Number of nodes: " << reader.GetNodes().size());
@@ -107,31 +110,14 @@ int main(int argc, char *argv[]) {
 
     // Step 3: Install the internet protocol stack (Ipv4 object and Ipv4L3protocol instance)
     InternetStackHelper internetStack;
-    // Find node 632430d9e1196 in networkState.GetNodes()
-    std::string targetSourceId = "IRIDIUM 145"; //"632430d9e1196";
-    bool nodeFound = false;
 
-    NodeContainer nodes = networkState.GetNodes();
-    for (uint32_t i = 0; i < nodes.GetN(); ++i) {
-        Ptr<Node> node = nodes.Get(i);
-        Ptr<leo::ConstellationNodeData> data = node->GetObject<leo::ConstellationNodeData>();
-        if (data && data->GetSourceId() == targetSourceId) {
-            NS_LOG_INFO("Node with source ID " << targetSourceId << " is present in the NodeContainer.");
-            nodeFound = true;
-            break;
-        }
-    }
-
-    if (!nodeFound) {
-        NS_LOG_ERROR("Node with source ID " << targetSourceId << " is NOT present in the NodeContainer.");
-    }
     // Traffic settings
     for (const auto& traffic : reader.GetTraffic()) {
         NS_LOG_INFO("Traffic: " << traffic.src_node_id << " → " << traffic.dst_node_id << ", Protocol: " << traffic.protocol
                                 << ", Start Time: " << traffic.start_time << ", Duration: " << traffic.duration
                                 << ", Packet Size: " << traffic.packet_size << ", Rate: " << traffic.rate);
     }
-    leo::TrafficManager trafficManager(reader.GetTraffic(), networkState);
+    leo::TrafficManager trafficManager(reader.GetTraffic());
 
     internetStack.Install(networkState.GetNodes());
 
@@ -139,18 +125,14 @@ int main(int argc, char *argv[]) {
     // install custom forwarding logic - TODO: extract to populateForwardingTable function
     std::unordered_map<std::string, Ptr<leo::CustomRoutingProtocol>> customRoutingProtocols;
     for (const auto& [srcId, ns3Id] : networkState.GetSourceIdToNs3Id()) {
-        Ptr<leo::CustomRoutingProtocol> customRouting = CreateObject<leo::CustomRoutingProtocol>(networkState,
-                                                                                                networkState.GetNodeBySourceId(srcId),
+        Ptr<leo::CustomRoutingProtocol> customRouting = CreateObject<leo::CustomRoutingProtocol>(networkState.GetNodeBySourceId(srcId),
                                                                                                 trafficManager);
         Ptr<Ipv4> ipv4 = networkState.GetNodeBySourceId(srcId)->GetObject<Ipv4>();
         if (ipv4) {
             customRouting->SetIpv4(ipv4);
             ipv4->SetRoutingProtocol(customRouting);
             customRoutingProtocols[srcId] = customRouting; // Store the protocol for later use
-            // NS_LOG_INFO("Custom routing protocol attached to node " << nodeId);
-            // Disable ICMPv4
-            //ipv4->SetAttribute("Icmp", BooleanValue(false));
-            //ipv4->SetAttribute("SendIcmpv4PortUnreachable", BooleanValue(false));
+            NS_LOG_DEBUG("Custom routing protocol attached to node " << srcId);
         }
     }
 
@@ -188,9 +170,9 @@ int main(int argc, char *argv[]) {
     // Step 6: Resolve Switching tables = map node ids to IP addresses
     leo::RoutingManager routingManager;
     routingManager.ResolveSwitchingTables(reader.GetRawSwitchingTables(),
-    //nodeIdToIpMap,
     networkState,
     simulationStart);
+
     // Append switching tables to nodes
     routingManager.AttachSwitchingTablesToNodes(networkState);
 
@@ -199,7 +181,7 @@ int main(int argc, char *argv[]) {
         Ptr<leo::CustomRoutingProtocol> customRouting = customRoutingProtocols[srcId];
         Ptr<leo::ConstellationNodeData> nodeData = networkState.GetNodeBySourceId(srcId)->GetObject<leo::ConstellationNodeData>();
         if (customRouting && nodeData) {
-            customRouting->SetSwitchingTable(nodeData->GetSwitchingTable());
+            customRouting->SetSwitchingTables(nodeData->GetSwitchingTablesRef());
             //customRouting->SetNextHopToDeviceMap(ipAssignmentHelper);
             // NS_LOG_INFO("Switching table set for node " << nodeId);
         }
@@ -300,7 +282,7 @@ int main(int argc, char *argv[]) {
             anim.UpdateNodeColor(node->GetId(), 255, 0, 0);
         }
     }
-    leo::TopologyManager topologyManager(reader.GetConstellationEvents(), networkState, anim);
+    leo::TopologyManager topologyManager(reader.GetConstellationEvents(), anim);
     topologyManager.ScheduleAllEvents();
 
     // Step 10: Run the simulation

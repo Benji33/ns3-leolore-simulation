@@ -13,9 +13,8 @@ namespace leo {
 NS_LOG_COMPONENT_DEFINE("TopologyManager");
 
 TopologyManager::TopologyManager(const std::map<double, std::vector<FileReader::ConstellationEvent>>& constellation_events_map,
-                                leo::NetworkState& networkState,
                                 AnimationInterface& anim)
-    : m_events(constellation_events_map), m_networkState(networkState), m_anim(anim) {}
+    : m_events(constellation_events_map), m_networkState(NetworkState::GetInstance()), m_anim(anim) {}
 
 
 void TopologyManager::ScheduleAllEvents() {

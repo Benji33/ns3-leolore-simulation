@@ -14,7 +14,6 @@ namespace leo {
 class TopologyManager {
 public:
     TopologyManager(const std::map<double, std::vector<FileReader::ConstellationEvent>>& constellation_events_map,
-                    leo::NetworkState& networkState,
                     AnimationInterface& anim);
 
     void ScheduleAllEvents();
@@ -22,7 +21,7 @@ public:
 private:
     ns3::NodeContainer m_nodes;
     std::map<double, std::vector<FileReader::ConstellationEvent>> m_events;
-    leo::NetworkState m_networkState;
+    leo::NetworkState& m_networkState;
     AnimationInterface& m_anim;
 
     void ApplyEvent(FileReader::ConstellationEvent& event);

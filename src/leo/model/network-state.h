@@ -23,8 +23,14 @@ struct LinkInfo {
     LinkInfo()
     : deviceA(nullptr), deviceB(nullptr), channel(nullptr), ipA(), ipB(), isActive(false) {}
 
-    LinkInfo(Ptr<NetDevice> devA, Ptr<NetDevice> devB, Ptr<Channel> ch, Ipv4Address ipA, Ipv4Address ipB, bool active)
-    : deviceA(devA), deviceB(devB), channel(ch), ipA(ipA), ipB(ipB), isActive(active) {}
+    LinkInfo(Ptr<NetDevice> devA,
+        Ptr<NetDevice> devB,
+        Ptr<Channel> ch,
+        Ipv4Address ipA,
+        Ipv4Address ipB,
+        bool active)
+   : deviceA(devA), deviceB(devB), channel(ch), ipA(ipA), ipB(ipB),
+     isActive(active) {}
 
     bool IsValid() const {
         return deviceA != nullptr && deviceB != nullptr && channel != nullptr;
@@ -33,12 +39,18 @@ struct LinkInfo {
 
 class NetworkState {
 public:
-    NetworkState() = default;
+    // Singleton
+    static NetworkState& GetInstance() {
+        static NetworkState instance;
+        return instance;
+    }
+
     void RegisterNode(Ptr<Node> networkNode, uint32_t ns3NodeId, const std::string& sourceId, bool isSatellite);
     void RegisterInterfaces(uint32_t ns3NodeId, const std::string& sourceId, Ipv4InterfaceContainer interfaces);
     void RegisterLink(std::string srcId, std::string dstId, Ptr<NetDevice> deviceA, Ptr<NetDevice> deviceB, Ptr<Channel> channel,
         Ipv4Address ipA, Ipv4Address ipB);
-    NodeContainer GetNodes() const { return m_nodes; }
+
+        NodeContainer GetNodes() const { return m_nodes; }
     NodeContainer GetGroundStations(){ return m_groundStations;}
     NodeContainer GetSatellites(){ return m_satellites;}
     std::map<std::string, uint32_t> GetSourceIdToNs3Id() const { return m_sourceIdToNs3Id; }
@@ -48,7 +60,7 @@ public:
     uint32_t GetNs3NodeId(const std::string& sourceId) const;
     std::string GetSourceId(uint32_t ns3NodeId) const;
     Ptr<Node> GetNodeBySourceId(std::string sourceId) const;
-    LinkInfo GetLinkInfo(std::string srcId, std::string dstId) const;
+    const LinkInfo& GetLinkInfo(const std::string& srcId, const std::string& dstId) const;
     std::pair<Ptr<NetDevice>, Ptr<NetDevice>> GetDevicesForNextHop(const std::string& currentNodeId, const std::string& nextHopNodeId) const;
     std::string GetNodeIdForIp(const Ipv4Address& ip) const;
     std::unordered_map<Ipv4Address, std::string> GetIpToNodeIdMap() const { return m_ipToNodeIdMap; }
@@ -61,7 +73,14 @@ public:
     void SetLinkDelay(uint32_t srcId, uint32_t dstId, Time delay);
     bool LinkDownCallback(Ptr<NetDevice> device, Ptr<const Packet>, uint16_t, const Address &);
 
+    std::pair<std::string, std::string> NormalizeKey(const std::string& a, const std::string& b) const;
+
+    NetworkState(const NetworkState&) = delete;
+    NetworkState& operator=(const NetworkState&) = delete;
+
 private:
+    NetworkState() = default;
+
     NodeContainer m_nodes;
     NodeContainer m_groundStations;
     NodeContainer m_satellites;
@@ -70,7 +89,6 @@ private:
     std::map<uint32_t, Ipv4InterfaceContainer> m_nodeInterfaces;
     std::map<Ptr<NetDevice>, Ipv4Address> m_deviceToIpMap;
     std::unordered_map<Ipv4Address, std::string> m_ipToNodeIdMap;
-    //std::map<uint32_t, std::vector<ns3::Ipv4Address>> m_ipInterfaces;
     std::map<std::pair<std::string, std::string>, LinkInfo> m_links;
 
 

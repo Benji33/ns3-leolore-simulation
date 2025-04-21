@@ -100,8 +100,8 @@ void RoutingManager::AttachSwitchingTablesToNodes(
         if (node != nullptr) {
             Ptr<leo::ConstellationNodeData> data = node->GetObject<leo::ConstellationNodeData>();
             if (data) {
-                data->SetSwitchingTable(table);
-                //NS_LOG_INFO("Attached switching table to node " << nodeId);
+                data->AddSwitchingTable(table);
+                NS_LOG_DEBUG("Attached switching table to node " << nodeId);
             } else {
                 NS_LOG_WARN("No ConstellationNodeData found on node " << nodeId);
             }

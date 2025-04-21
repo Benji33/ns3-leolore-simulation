@@ -18,19 +18,89 @@ TypeId CustomRoutingProtocol::GetTypeId() {
     return tid;
 }
 
-CustomRoutingProtocol::CustomRoutingProtocol(leo::NetworkState &networkState, Ptr<Node> node, leo::TrafficManager &trafficManager)
-: m_node(node), m_networkState(networkState), m_trafficManager(trafficManager) {}
+CustomRoutingProtocol::CustomRoutingProtocol(Ptr<Node> node, leo::TrafficManager &trafficManager)
+: m_node(node), m_networkState(NetworkState::GetInstance()), m_trafficManager(trafficManager) {}
 
 CustomRoutingProtocol::~CustomRoutingProtocol() {}
 
-void CustomRoutingProtocol::SetSwitchingTable(const SwitchingTable& table) {
-    m_switchingTable = table;
+void CustomRoutingProtocol::SetSwitchingTables(const std::vector<std::reference_wrapper<const SwitchingTable>>& tables) {
+    m_switchingTables = tables;
+    NS_LOG_DEBUG("Switching tables set. Total tables: " << m_switchingTables.size());
+}
+const std::vector<std::reference_wrapper<const SwitchingTable>>& CustomRoutingProtocol::GetSwitchingTables() const {
+    return m_switchingTables;
+}
+
+const SwitchingTable* CustomRoutingProtocol::GetCurrentValidSwitchingTable(Time currentTime) {
+    // Check if the currently valid table is still valid
+    if (m_currentValidSwitchingTable != nullptr) {
+        if (currentTime >= m_currentValidSwitchingTable->valid_from &&
+            currentTime <= m_currentValidSwitchingTable->valid_until) {
+            return m_currentValidSwitchingTable;
+        }
+    }
+
+    // Reset the current valid table
+    m_currentValidSwitchingTable = nullptr;
+
+    // Variables to track the closest tables for debugging
+    const SwitchingTable* closestBefore = nullptr;
+    const SwitchingTable* closestAfter = nullptr;
+
+    // Iterate through the sorted switching tables
+    for (const auto& tableRef : m_switchingTables) {
+        const SwitchingTable& table = tableRef.get();
+
+        // Log the validity times of each table
+        NS_LOG_DEBUG("Checking table: valid_from = " << table.valid_from.GetSeconds()
+                      << ", valid_until = " << table.valid_until.GetSeconds());
+
+        // Check if the current time falls within the validity range
+        if (currentTime >= table.valid_from && currentTime <= table.valid_until) {
+            m_currentValidSwitchingTable = &table;
+            NS_LOG_DEBUG("Updated current valid switching table: valid_from = " << table.valid_from.GetSeconds()
+                         << ", valid_until = " << table.valid_until.GetSeconds());
+            return m_currentValidSwitchingTable;
+        }
+
+        // Track the closest tables for debugging
+        if (table.valid_until < currentTime) {
+            if (closestBefore == nullptr || table.valid_until > closestBefore->valid_until) {
+                closestBefore = &table;
+            }
+        } else if (table.valid_from > currentTime) {
+            if (closestAfter == nullptr || table.valid_from < closestAfter->valid_from) {
+                closestAfter = &table;
+            }
+        }
+    }
+
+    // Log a warning if no valid table is found
+    NS_LOG_WARN("No valid switching table found for current time: " << currentTime.GetSeconds());
+
+    // Log the closest tables for debugging
+    if (closestBefore) {
+        NS_LOG_WARN("Closest table before current time: valid_from = " << closestBefore->valid_from.GetSeconds()
+                     << ", valid_until = " << closestBefore->valid_until.GetSeconds());
+    } else {
+        NS_LOG_WARN("No table found with valid_until before current time.");
+    }
+
+    if (closestAfter) {
+        NS_LOG_WARN("Closest table after current time: valid_from = " << closestAfter->valid_from.GetSeconds()
+                     << ", valid_until = " << closestAfter->valid_until.GetSeconds());
+    } else {
+        NS_LOG_WARN("No table found with valid_from after current time.");
+    }
+
+    return nullptr;
 }
 
 Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4Header& header,
-                                                   Ptr<NetDevice> oif, Socket::SocketErrno& sockerr) {
-    Ipv4Address dst = header.GetDestination();
-    m_trafficManager.IncreasePacketSentProxy(header);
+    Ptr<NetDevice> oif, Socket::SocketErrno& sockerr) {
+        Ipv4Address dst = header.GetDestination();
+        m_trafficManager.IncreasePacketSentProxy(header);
+
     NS_LOG_DEBUG("----------> RouteOutput called for destination: " << dst);
     leo::PacketIdTag tag;
     if (packet->PeekPacketTag(tag)) {
@@ -46,14 +116,14 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
         return nullptr;
     }
 
-    // Look up the next hop node ID in the switching table
-
-    auto it = m_switchingTable.routing_table.find(destNodeId);
-    if (it == m_switchingTable.routing_table.end()) {
-        NS_LOG_WARN("No route found for destination node: " << destNodeId);
+    const SwitchingTable* currentTable = GetCurrentValidSwitchingTable(Simulator::Now());
+    // Assume there is always a valid switching table for now
+    if (currentTable == nullptr) {
+        NS_LOG_ERROR("No valid switching table found for the current time.");
         sockerr = Socket::ERROR_NOROUTETOHOST;
         return nullptr;
     }
+
     auto nodeData = m_node->GetObject<leo::ConstellationNodeData>();
     if (!nodeData) {
         NS_LOG_ERROR("ConstellationNodeData not found on node");
@@ -61,11 +131,19 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
         return nullptr;
     }
     std::string currentNodeId = nodeData->GetSourceId();
+
+    // Look up the next hop node ID in the switching table
+    auto it = currentTable->routing_table.find(destNodeId);
+    if (it == currentTable->routing_table.end()) {
+        NS_LOG_WARN("No route found at "<< Simulator::Now().GetSeconds() << " from current node " << currentNodeId << " for destination node: " << destNodeId);
+        sockerr = Socket::ERROR_NOROUTETOHOST;
+        return nullptr;
+    }
     std::string nextHopNodeId = it->second;
 
     // Check if link is active
     if (!m_networkState.IsLinkActive(currentNodeId, nextHopNodeId)) {
-        NS_LOG_WARN("Link between " << currentNodeId << " and " << nextHopNodeId << " is inactive.");
+        NS_LOG_WARN("Link between " << currentNodeId << " and " << nextHopNodeId << " is inactive at " << Simulator::Now().GetSeconds());
         sockerr = Socket::ERROR_NOROUTETOHOST;
         return nullptr;
     }
@@ -88,15 +166,7 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
         return nullptr;
     }
     NS_LOG_DEBUG("Next hop IP for destination " << destNodeId << ": " << nextHopDeviceIp);
-    if (destNodeId == "632430d9e1105"){ // && nextHopDeviceIp == Ipv4Address(" 10.1.74.2")) {
-        dev_counter++;
-        NS_LOG_DEBUG("dev_counter: " << dev_counter);
-        if (dev_counter == 55)
-       {
-        dev_counter = 0;
-            NS_LOG_DEBUG("ALMOST ERROR");
-        }
-    }
+
     // Create the route
     Ptr<Ipv4Route> route = Create<Ipv4Route>();
     route->SetDestination(dst);
@@ -117,7 +187,6 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
             sockerr = Socket::ERROR_NOROUTETOHOST;
             return nullptr;
         }
-
     return route;
 }
 
@@ -151,16 +220,16 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
     }*/
     // Check if the destination is any of the ip addresses of this node
     for (uint32_t i = 0; i < m_ipv4->GetNInterfaces(); ++i) {
-    for (uint32_t j = 0; j < m_ipv4->GetNAddresses(i); ++j) {
-        Ipv4Address localAddr = m_ipv4->GetAddress(i, j).GetLocal();
-        if (dst == localAddr) {
-            NS_LOG_DEBUG("Packet is for this node (interface " << i << "), delivering to application layer...");
-            m_trafficManager.IncreasePacketReceivedProxy(header);
-            lcb(packet, header, i);
-            return true;
+        for (uint32_t j = 0; j < m_ipv4->GetNAddresses(i); ++j) {
+            Ipv4Address localAddr = m_ipv4->GetAddress(i, j).GetLocal();
+            if (dst == localAddr) {
+                NS_LOG_DEBUG("Packet is for this node (interface " << i << "), delivering to application layer...");
+                m_trafficManager.IncreasePacketReceivedProxy(header);
+                lcb(packet, header, i);
+                return true;
+            }
         }
     }
-}
     // Resolve the destination node ID from the IP address
     std::string destNodeId = m_networkState.GetNodeIdForIp(dst);
     NS_LOG_DEBUG("Destination node ID for " << dst << ": " << destNodeId);
@@ -169,14 +238,14 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
         ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
         return false;
     }
-
-    // Look up the next hop node ID in the switching table
-    auto it = m_switchingTable.routing_table.find(destNodeId);
-    if (it == m_switchingTable.routing_table.end()) {
-        NS_LOG_WARN("No route found for destination node: " << destNodeId);
+    const SwitchingTable* currentTable = GetCurrentValidSwitchingTable(Simulator::Now());
+    // Assume there is always a valid switching table for now
+    if (currentTable == nullptr) {
+        NS_LOG_ERROR("No valid switching table found for the current time.");
         ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
         return false;
     }
+
     auto nodeData = m_node->GetObject<leo::ConstellationNodeData>();
     if (!nodeData) {
         NS_LOG_ERROR("ConstellationNodeData not found on node");
@@ -185,10 +254,18 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
     }
     std::string currentNodeId = nodeData->GetSourceId();
 
+    // Look up the next hop node ID in the switching table
+    auto it = currentTable->routing_table.find(destNodeId);
+    if (it == currentTable->routing_table.end()) {
+        NS_LOG_WARN("No route found at "<< Simulator::Now().GetSeconds() << " from current node " << currentNodeId << " for destination node: " << destNodeId);
+        ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
+        return false;
+    }
+
     std::string nextHopNodeId = it->second;
 
     if (!m_networkState.IsLinkActive(currentNodeId, nextHopNodeId)) {
-        NS_LOG_WARN("Link between " << currentNodeId << " and " << nextHopNodeId << " is inactive.");
+        NS_LOG_WARN("Link between " << currentNodeId << " and " << nextHopNodeId << " is inactive at " << Simulator::Now().GetSeconds());
         ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
         return false;
     }
@@ -282,11 +359,11 @@ void CustomRoutingProtocol::NotifyRemoveAddress(uint32_t interface, Ipv4Interfac
 
 void CustomRoutingProtocol::PrintRoutingTable(Ptr<OutputStreamWrapper> stream, Time::Unit unit) const {
     *stream->GetStream() << "CustomRoutingProtocol routing table:\n";
-    for (const auto& entry : m_switchingTable.routing_table) {
+    /*for (const auto& entry : (GetCurrentValidSwitchingTable(Simulator::Now()))->routing_table) {
         *stream->GetStream() << "  Destination: " << entry.first << ", Next Hop: " << entry.second << "\n";
-    }
-    // Dummy implementation
+    }*/
 }
+
 void CustomRoutingProtocol::SetNextHopToDeviceMap(leo::IpAssignmentHelper& ipAssignmentHelper) {
     // Retrieve the current node
     Ptr<Node> node = m_ipv4->GetObject<Node>();

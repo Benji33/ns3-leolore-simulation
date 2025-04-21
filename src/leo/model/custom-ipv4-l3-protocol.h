@@ -23,7 +23,7 @@ class CustomRoutingProtocol : public Ipv4RoutingProtocol {
 public:
     static TypeId GetTypeId();
     CustomRoutingProtocol() = default;
-    CustomRoutingProtocol(leo::NetworkState &networkState, Ptr<Node> m_node, leo::TrafficManager &trafficManager);
+    CustomRoutingProtocol(Ptr<Node> m_node, leo::TrafficManager &trafficManager);
     virtual ~CustomRoutingProtocol();
 
     // Called when a packet is sent out. Input is not necessarily called before if packet is created on node itself (by an application)
@@ -50,15 +50,18 @@ public:
     virtual void SetIpv4(Ptr<Ipv4> ipv4) override;
     virtual void PrintRoutingTable(Ptr<OutputStreamWrapper> stream,  Time::Unit unit = Time::S) const override;
 
-
-    void SetSwitchingTable(const SwitchingTable &table);
     void SetNextHopToDeviceMap(leo::IpAssignmentHelper &ipAssignmentHelper);
     void AddNextHop(Ipv4Address nextHop, uint32_t interface);
+    void SetSwitchingTables(const std::vector<std::reference_wrapper<const SwitchingTable>>& tables);
+    const std::vector<std::reference_wrapper<const SwitchingTable>>& GetSwitchingTables() const;
+    const SwitchingTable* GetCurrentValidSwitchingTable(Time currentTime);
 
 private:
     Ptr<Ipv4> m_ipv4; // represents the ipv4 stack on node
     Ptr<Node> m_node; // represents the node this protocol is attached to
-    SwitchingTable m_switchingTable;
+    std::vector<std::reference_wrapper<const SwitchingTable>> m_switchingTables; // Store references to sorted SwitchingTables
+    const SwitchingTable* m_currentValidSwitchingTable = nullptr; // Pointer to the currently valid switching table
+
     // map to store the next hop ip to output device ip
     std::map<Ipv4Address, Ptr<NetDevice>> m_nextHopToDeviceMap;
     leo::NetworkState& m_networkState;

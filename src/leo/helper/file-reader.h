@@ -81,12 +81,13 @@ public:
 
     // Switching tables
     void readSwitchingTableFromJson(const std::string& filename);
+    void readAllSwitchingTablesFromFolder(const std::string& foldername);
 
     // Events
-    void ReadConstellationEvents(const std::string& filename, std::chrono::_V2::system_clock::time_point& startTimeStr);
+    void readConstellationEvents(const std::string& filename, std::chrono::_V2::system_clock::time_point& startTimeStr);
 
     // Traffic
-    void ReadTrafficFromJson(const std::string& filename);
+    void readTrafficFromJson(const std::string& filename);
 
     // Getters for private members
     const std::vector<std::unique_ptr<Node>>& GetNodes() const { return nodes; }
