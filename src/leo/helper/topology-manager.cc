@@ -12,13 +12,12 @@ namespace leo {
 
 NS_LOG_COMPONENT_DEFINE("TopologyManager");
 
-TopologyManager::TopologyManager(const std::map<double, std::vector<FileReader::ConstellationEvent>>& constellation_events_map,
-                                AnimationInterface& anim)
-    : m_events(constellation_events_map), m_networkState(NetworkState::GetInstance()), m_anim(anim) {}
+TopologyManager::TopologyManager(AnimationInterface& anim)
+    : m_networkState(NetworkState::GetInstance()), m_anim(anim) {}
 
 
-void TopologyManager::ScheduleAllEvents() {
-    for (const auto& events : m_events) {
+void TopologyManager::ScheduleAllEvents(const std::map<double, std::vector<FileReader::ConstellationEvent>>& constellation_events_map) {
+    for (const auto& events : constellation_events_map) {
         for (const auto& event : events.second) {
             Simulator::Schedule(Seconds(events.first),
                                 &TopologyManager::ApplyEvent, this, event);
@@ -28,10 +27,10 @@ void TopologyManager::ScheduleAllEvents() {
 
 void TopologyManager::ApplyEvent(FileReader::ConstellationEvent& event) {
     if (event.action == FileReader::ConstellationEvent::Action::LINK_DOWN) {
-        //NS_LOG_INFO("Disabeling Link" << " - " << event.from << " - " << event.to << " - " << event.weight);
+        NS_LOG_DEBUG("Disabeling Link" << " - " << event.from << " - " << event.to << " - " << event.weight);
         m_networkState.DisableLink(event.from, event.to);
     } else if (event.action == FileReader::ConstellationEvent::Action::LINK_UP) {
-        //NS_LOG_INFO("Enabeling Link" << " - " << event.from << " - " << event.to << " - " << event.weight);
+        NS_LOG_DEBUG("Enabeling Link" << " - " << event.from << " - " << event.to << " - " << event.weight);
         m_networkState.EnableLink(event.from, event.to, event.weight);
     }
     }

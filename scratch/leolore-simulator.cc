@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
     LogComponentEnable("TopologyManager", LOG_LEVEL_INFO);
     LogComponentEnable("RoutingManager", LOG_LEVEL_INFO);
     LogComponentEnable("FileReader", LOG_LEVEL_INFO);
-    LogComponentEnable("NetworkState", LOG_LEVEL_INFO   );
+    LogComponentEnable("NetworkState", LOG_LEVEL_INFO);
     LogComponentEnable("TrafficManager", LOG_LEVEL_INFO);
     //LogComponentEnable("DefaultSimulatorImpl", LOG_LEVEL_DEBUG);
 
@@ -46,12 +46,16 @@ int main(int argc, char *argv[]) {
     ns3::leo::FileReader reader;
     //uint64_t simulationStart = 1742599254; // 2025-03-21T11:20:54
     std::tm tm = {};
-    std::istringstream ss("2025-03-21T11:20:54");
+    std::istringstream ss("2025-03-21T11:20:30");
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
     std::time_t t = timegm(&tm);
     auto simulationStart = std::chrono::system_clock::from_time_t(t);
+    std::time_t simulationStartTimeT = std::chrono::system_clock::to_time_t(simulationStart);
+    std::cout << "Simulation start time: "
+              << std::put_time(std::gmtime(&simulationStartTimeT), "%Y-%m-%d %H:%M:%S UTC")
+              << std::endl;
     std::string base_path = "/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/";
-    std::string file_name = "1742556095";
+    std::string file_name = "1742556030";
 
 
     //TODO: Get JSON file path through command line argument
@@ -62,8 +66,12 @@ int main(int argc, char *argv[]) {
     reader.readAllSwitchingTablesFromFolder(base_path + file_name + "/switching_tables");
     //reader.printSwitchtingTables();
 
-    reader.readConstellationEvents(base_path + file_name + "/events.json", simulationStart);
+    // Events
+    reader.readConstellationEvents(base_path + file_name + "/events.json", simulationStart, false);
     reader.printConstellationEvents();
+
+    // Failures
+    reader.readConstellationEvents(base_path + file_name + "/failures.json", simulationStart, true);
 
     reader.readTrafficFromJson(base_path + file_name + "/traffic.json");
 
@@ -282,8 +290,10 @@ int main(int argc, char *argv[]) {
             anim.UpdateNodeColor(node->GetId(), 255, 0, 0);
         }
     }
-    leo::TopologyManager topologyManager(reader.GetConstellationEvents(), anim);
-    topologyManager.ScheduleAllEvents();
+    leo::TopologyManager topologyManager(anim);
+    // Schedule all events and failures
+    topologyManager.ScheduleAllEvents(reader.GetConstellationEvents());
+    topologyManager.ScheduleAllEvents(reader.GetFailures());
 
     // Step 10: Run the simulation
     Simulator::Run();

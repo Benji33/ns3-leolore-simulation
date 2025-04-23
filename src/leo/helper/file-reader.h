@@ -83,8 +83,8 @@ public:
     void readSwitchingTableFromJson(const std::string& filename);
     void readAllSwitchingTablesFromFolder(const std::string& foldername);
 
-    // Events
-    void readConstellationEvents(const std::string& filename, std::chrono::_V2::system_clock::time_point& startTimeStr);
+    // Events & Failures
+    void readConstellationEvents(const std::string& filename, std::chrono::_V2::system_clock::time_point& startTimeStr, bool failures);
 
     // Traffic
     void readTrafficFromJson(const std::string& filename);
@@ -95,6 +95,7 @@ public:
     const std::unordered_map<std::string, Node*>& GetNodeMap() const { return node_map; }
     std::vector<RawSwitchingTable>& GetRawSwitchingTables() { return raw_switching_tables; }
     const std::map<double, std::vector<ConstellationEvent>>& GetConstellationEvents() const { return constellation_events_map; }
+    const std::map<double, std::vector<ConstellationEvent>>& GetFailures() const { return constellation_failures_map; }
     std::map<std::pair<std::string, std::string>, double> GetAllUniqueLinks() const;
     const std::vector<Traffic>& GetTraffic() const { return traffic_vector; }
 
@@ -109,6 +110,7 @@ private:
     std::vector<Edge> edges;
     std::vector<RawSwitchingTable> raw_switching_tables;
     std::map<double, std::vector<ConstellationEvent>> constellation_events_map;
+    std::map<double, std::vector<ConstellationEvent>> constellation_failures_map;
     std::vector<Traffic> traffic_vector;
 
     // Map for quick node access by ID

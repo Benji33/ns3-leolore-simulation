@@ -13,14 +13,12 @@ namespace leo {
 
 class TopologyManager {
 public:
-    TopologyManager(const std::map<double, std::vector<FileReader::ConstellationEvent>>& constellation_events_map,
-                    AnimationInterface& anim);
+    TopologyManager(AnimationInterface& anim);
 
-    void ScheduleAllEvents();
+    void ScheduleAllEvents(const std::map<double, std::vector<FileReader::ConstellationEvent>>& constellation_events_map);
 
 private:
     ns3::NodeContainer m_nodes;
-    std::map<double, std::vector<FileReader::ConstellationEvent>> m_events;
     leo::NetworkState& m_networkState;
     AnimationInterface& m_anim;
 

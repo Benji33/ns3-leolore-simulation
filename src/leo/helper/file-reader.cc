@@ -136,7 +136,7 @@ void FileReader::readAllSwitchingTablesFromFolder(const std::string& foldername)
         NS_LOG_ERROR("Error reading switching tables from folder: " << e.what());
     }
 }
-void FileReader::readConstellationEvents(const std::string& filename, std::chrono::_V2::system_clock::time_point& simulationStartTime) {
+void FileReader::readConstellationEvents(const std::string& filename, std::chrono::_V2::system_clock::time_point& simulationStartTime, bool failures) {
 
     std::ifstream file(filename);
     if (!file.is_open()) {
@@ -171,8 +171,12 @@ void FileReader::readConstellationEvents(const std::string& filename, std::chron
             event.from = e["from"];
             event.to = e["to"];
             event.weight = e["weight"];
-
-            constellation_events_map[simTime].push_back(event);
+            if (failures){
+                constellation_failures_map[simTime].push_back(event);
+            }
+            else{
+                constellation_events_map[simTime].push_back(event);
+            }
         }
     }
 }
