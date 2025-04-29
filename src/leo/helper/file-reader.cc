@@ -112,7 +112,11 @@ void FileReader::readSwitchingTableFromJson(const std::string& filename) {
         table.valid_until = table_data["valid_until"];
 
         for (auto& entry : table_data["table_data"].items()) {
-            table.table_data[entry.key()] = entry.value();
+            // Append all given paths
+            for (auto& path : entry.value()) {
+                NS_LOG_DEBUG("Adding path: " << path.get<std::string>() << std::endl);
+                table.table_data[entry.key()].push_back(path.get<std::string>());
+            }
         }
 
         raw_switching_tables.push_back(table);
@@ -279,8 +283,10 @@ void FileReader::printSwitchtingTables() const {
         std::cout << "Table Data:" << std::endl;
 
         for (const auto& entry : table.table_data) {
-            std::cout << "  Destination: " << entry.first
-                      << ", Next Hop: " << entry.second << std::endl;
+            std::cout << "  Destination: " << entry.first << std::endl;
+            for (const auto& path : entry.second) {
+                std::cout << " Possible next Hop: " << path << std::endl;
+            }
         }
 
         std::cout << "---------------------------------" << std::endl;

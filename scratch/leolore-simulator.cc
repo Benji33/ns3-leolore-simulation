@@ -26,7 +26,6 @@ NS_LOG_COMPONENT_DEFINE("LeoLoreSimulator");
 int main(int argc, char *argv[]) {
     std::ofstream nullStream("/dev/null");
     std::streambuf* oldCerrStreamBuf = std::cerr.rdbuf(nullStream.rdbuf());
-
     LogComponentEnable("LeoLoreSimulator", LOG_LEVEL_INFO);
     LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
     LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
@@ -46,16 +45,18 @@ int main(int argc, char *argv[]) {
     ns3::leo::FileReader reader;
     //uint64_t simulationStart = 1742599254; // 2025-03-21T11:20:54
     std::tm tm = {};
-    std::istringstream ss("2025-03-21T11:20:30");
+    std::istringstream ss("2025-03-21T11:20:00");//"2025-03-21T11:20:30");
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
     std::time_t t = timegm(&tm);
     auto simulationStart = std::chrono::system_clock::from_time_t(t);
+    //std::cout << "SimulationStart: " << simulationStart << std::endl;
     std::time_t simulationStartTimeT = std::chrono::system_clock::to_time_t(simulationStart);
     std::cout << "Simulation start time: "
-              << std::put_time(std::gmtime(&simulationStartTimeT), "%Y-%m-%d %H:%M:%S UTC")
-              << std::endl;
+    << std::put_time(std::gmtime(&simulationStartTimeT), "%Y-%m-%d %H:%M:%S UTC")
+    << std::endl;
     std::string base_path = "/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/";
-    std::string file_name = "1742556030";
+    std::string file_name = "1742556000";//"1742556030";
+    const bool simpleLoopAvoidance = true;
 
 
     //TODO: Get JSON file path through command line argument
@@ -63,12 +64,12 @@ int main(int argc, char *argv[]) {
     //reader.printGraph();
 
     //reader.readSwitchingTableFromJson("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/switching_tables.json");
-    reader.readAllSwitchingTablesFromFolder(base_path + file_name + "/switching_tables");
+    reader.readAllSwitchingTablesFromFolder(base_path + file_name + "/updated_switching_tables");
     //reader.printSwitchtingTables();
 
     // Events
     reader.readConstellationEvents(base_path + file_name + "/events.json", simulationStart, false);
-    reader.printConstellationEvents();
+    //reader.printConstellationEvents();
 
     // Failures
     reader.readConstellationEvents(base_path + file_name + "/failures.json", simulationStart, true);
@@ -134,7 +135,8 @@ int main(int argc, char *argv[]) {
     std::unordered_map<std::string, Ptr<leo::CustomRoutingProtocol>> customRoutingProtocols;
     for (const auto& [srcId, ns3Id] : networkState.GetSourceIdToNs3Id()) {
         Ptr<leo::CustomRoutingProtocol> customRouting = CreateObject<leo::CustomRoutingProtocol>(networkState.GetNodeBySourceId(srcId),
-                                                                                                trafficManager);
+                                                                                                trafficManager,
+                                                                                                simpleLoopAvoidance);
         Ptr<Ipv4> ipv4 = networkState.GetNodeBySourceId(srcId)->GetObject<Ipv4>();
         if (ipv4) {
             customRouting->SetIpv4(ipv4);
@@ -221,55 +223,6 @@ int main(int argc, char *argv[]) {
     } else {
         NS_LOG_ERROR("Failed to retrieve town for GS2 '" << gs2Id << "'");
     }
-    /*// Print networkState.m_ipToNodeIdMap
-    for (const auto& [ip, nodeId] : networkState.GetIpToNodeIdMap()) {
-        NS_LOG_INFO("IP: " << ip << ", Node ID: " << nodeId);
-    }*/
-   // Step 7: Install a UDP server on gs2
-   /*uint16_t port = 19;
-   UdpEchoServerHelper echoServer(port);
-    ApplicationContainer serverApps = echoServer.Install(gs2);
-    serverApps.Start(Seconds(1.0));
-    serverApps.Stop(Seconds(10.0));
-    */
-    // Step 8: Install a UDP client on gs1
-    /*UdpEchoClientHelper echoClient(gs2Address, port);
-    echoClient.SetAttribute("MaxPackets", UintegerValue(1));
-    echoClient.SetAttribute("Interval", TimeValue(Seconds(1.0)));
-    echoClient.SetAttribute("PacketSize", UintegerValue(1024));
-    */
-   /*Ptr<Socket> clientSocket = Socket::CreateSocket(gs1, UdpSocketFactory::GetTypeId());
-
-   // Get gs1's Ipv4 object and bind the socket to the correct interface
-
-   Ptr<Ipv4> ipv42 = gs1->GetObject<Ipv4>();
-   int32_t ifaceIndex = ipv42->GetInterfaceForAddress(gs1Address);
-   NS_ASSERT_MSG(ifaceIndex >= 0, "Interface not found for gs1Address");
-   Ptr<NetDevice> netDevice = gs1->GetDevice(ifaceIndex);
-
-   // Bind socket to specific IP and port
-   InetSocketAddress localBind(gs1Address, port); // Use gs1's IP
-   clientSocket->Bind(localBind);
-   clientSocket->BindToNetDevice(netDevice);
-
-   // Connect to gs2
-   InetSocketAddress remote(gs2Address, port);
-   clientSocket->Connect(remote);
-
-   // Schedule sending packet at 2s
-   Simulator::Schedule(Seconds(2.0), [clientSocket]() {
-       Ptr<Packet> packet = Create<Packet>(1024);  // 1024-byte payload
-       clientSocket->Send(packet);
-   });*/
-   //Simulator::Schedule(Seconds(2.06), [&networkState]() {networkState.DisableLink("IRIDIUM 134", "IRIDIUM 145");});
-    //clientApp.Start(Seconds(2.0));
-    //clientApp.Stop(Seconds(10.0));
-
-    // Step 9: Set up global routing for now
-    //Ipv4GlobalRoutingHelper::PopulateRoutingTables();
-
-    // Step 9: Set up traffic manager
-    //print traffic
 
     trafficManager.ScheduleTraffic();
     // Set up animation for nodes

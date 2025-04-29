@@ -31,7 +31,7 @@ void NetworkState::RegisterLink(std::string srcId, std::string dstId, Ptr<NetDev
     Ipv4Address ipA, Ipv4Address ipB) {
     auto key = NormalizeKey(srcId, dstId);
 
-    NS_LOG_INFO("Registering link: " << key.first << " ↔ " << key.second);
+    NS_LOG_DEBUG("Registering link: " << key.first << " ↔ " << key.second);
     m_links[key] = LinkInfo(deviceA, deviceB, channel, ipA, ipB, true);
 
     m_deviceToIpMap[deviceA] = ipA;
@@ -118,7 +118,9 @@ std::pair<Ptr<NetDevice>, Ptr<NetDevice>> NetworkState::GetDevicesForNextHop(con
             NS_LOG_WARN("Current node ID does not match either end of the link.");
         }
     }
-
+    else {
+        NS_LOG_WARN("Link Info is invalid.");
+    }
     NS_LOG_ERROR("Invalid link or no devices found for currentNodeId: " << currentNodeId << " and nextHopNodeId: " << nextHopNodeId);
     return {nullptr, nullptr}; // Return null pointers if no valid devices are found
 }

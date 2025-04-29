@@ -46,8 +46,8 @@ public:
         std::string node;
         std::string valid_from;
         std::string valid_until;
-        // routes
-        std::unordered_map<std::string, std::string> table_data;
+        // routes -change to list of strings for backup paths
+        std::unordered_map<std::string, std::vector<std::string>> table_data;
     };
 
     struct ConstellationEvent {

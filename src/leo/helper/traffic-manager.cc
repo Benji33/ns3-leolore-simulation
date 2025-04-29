@@ -42,7 +42,7 @@ void TrafficManager::ScheduleTraffic() {
     int id_counter = 0;
     for (const auto& traffic : m_trafficVector) {
         //DEBUG 632430d9e1141 to 632430d9e1167
-        /*if((traffic.src_node_id != "632430d9e1141") || (traffic.dst_node_id != "632430d9e1167")){
+        /*if((traffic.src_node_id != "632430d9e115c") ||  (traffic.dst_node_id != "632430d9e115c")){
             continue;
         }*/
         NS_LOG_DEBUG("Scheduling traffic from " << traffic.src_node_id << " to " << traffic.dst_node_id);

@@ -23,7 +23,7 @@ class CustomRoutingProtocol : public Ipv4RoutingProtocol {
 public:
     static TypeId GetTypeId();
     CustomRoutingProtocol() = default;
-    CustomRoutingProtocol(Ptr<Node> m_node, leo::TrafficManager &trafficManager);
+    CustomRoutingProtocol(Ptr<Node> m_node, leo::TrafficManager &trafficManager, const bool simpleLoopAvoidance);
     virtual ~CustomRoutingProtocol();
 
     // Called when a packet is sent out. Input is not necessarily called before if packet is created on node itself (by an application)
@@ -66,6 +66,7 @@ private:
     std::map<Ipv4Address, Ptr<NetDevice>> m_nextHopToDeviceMap;
     leo::NetworkState& m_networkState;
     leo::TrafficManager& m_trafficManager;
+    const bool m_simpleLoopAvoidance;
     int dev_counter=0;
 };
 

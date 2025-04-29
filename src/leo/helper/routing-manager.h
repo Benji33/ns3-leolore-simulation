@@ -22,12 +22,12 @@ struct SwitchingTable {
     std::string node_id; // Resolved IP address of the node
     ns3::Time valid_from;     // Validity start time
     ns3::Time valid_until;    // Validity end time
-    std::unordered_map<std::string, std::string> routing_table; // Node ID -> Next-hop node ID
+    std::unordered_map<std::string, std::vector<std::string>> routing_table; // Node ID -> Next-hop node ID
     //std::unordered_map<ns3::Ipv4Address, ns3::Ipv4Address> ip_routing_table; // Destination IP -> Next-hop IP
 
     // Constructors
     SwitchingTable(std::string nodeId, ns3::Time from, ns3::Time until,
-        std::unordered_map<std::string, std::string> table_data)
+        std::unordered_map<std::string, std::vector<std::string>> table_data)
     : node_id(nodeId),
     valid_from(from),
     valid_until(until),
