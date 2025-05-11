@@ -18,7 +18,8 @@ public:
         const std::vector<leo::FileReader::Edge>& edges,
         leo::NetworkState& networkState
     );
-    void PrecreateAllLinks(const std::map<std::pair<std::string, std::string>, double>& allLinks, NetworkState& networkState);
+    void PrecreateAllLinks(const std::map<std::pair<std::string, std::string>, double>& allLinks, NetworkState& networkState, uint16_t dataRateIslMpbs,
+        uint16_t dataRateFeederMpbs);
     std::pair<Ipv4Address, Ipv4Address> GetIpPair(const std::string& sourceId, const std::string& targetId) const;
     std::unordered_map<std::string, std::pair<Ipv4Address, Ipv4Address>> GetIpMappingsForSource(const std::string& sourceId) const;
 

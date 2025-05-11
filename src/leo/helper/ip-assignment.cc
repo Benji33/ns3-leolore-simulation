@@ -4,6 +4,7 @@
 #include "ns3/string.h"
 #include "ns3/log.h"
 #include "ns3/custom-ipv4-l3-protocol.h"
+#include "ns3/constellation-node-data.h"
 #include <sstream>
 
 namespace ns3 {
@@ -50,11 +51,11 @@ std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::As
         std::ostringstream delayStream;
          // Delay in milliseconds
         delayStream << (delayInSeconds * 1e3) << "ms";
+
         p2p.SetChannelAttribute("Delay", StringValue(delayStream.str()));
 
         // data rate - should maybe be configured based on distance as well later
         p2p.SetDeviceAttribute("DataRate", StringValue("10Gbps"));
-
         // Create a point-to-point link between the source and target nodes
         //NS_LOG_INFO("Creating link between " << edge.source << " and " << edge.target);
         NetDeviceContainer devices = p2p.Install(sourceNode, targetNode);
@@ -93,11 +94,19 @@ std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::As
     return nodeIdToIpMap;
 }
 
-void IpAssignmentHelper::PrecreateAllLinks(const std::map<std::pair<std::string, std::string>, double>& allLinks, NetworkState& networkState) {
+void IpAssignmentHelper::PrecreateAllLinks(const std::map<std::pair<std::string, std::string>, double>& allLinks, NetworkState& networkState, uint16_t dataRateIslMpbs,
+    uint16_t dataRateFeederMpbs) {
     Ipv4AddressHelper ipv4;
     int maj_subnet_counter = 1;
     int min_subnet_counter = 0;
-
+    // Set the data rate based on the link type
+    std::ostringstream dataRateIslStream;
+    std::ostringstream dataRateFeederStream;
+    dataRateIslStream << dataRateIslMpbs << "Mbps";
+    dataRateFeederStream << dataRateFeederMpbs << "Mbps";
+    NS_LOG_DEBUG("Data rate for ISL: " << dataRateIslStream.str());
+    NS_LOG_DEBUG("Data rate for feeder: " << dataRateFeederStream.str());
+    // Iterate through all links and create them
     for (const auto& [link, weight] : allLinks) {
         const std::string& sourceId = link.first;
         const std::string& targetId = link.second;
@@ -115,10 +124,23 @@ void IpAssignmentHelper::PrecreateAllLinks(const std::map<std::pair<std::string,
         std::ostringstream delayStream;
          // Delay in milliseconds
         delayStream << (delayInSeconds * 1e3) << "ms";
+        NS_LOG_DEBUG("Link delay for distance: "<< weight << " is " << delayStream.str());
+        auto sourceNodeData = sourceNode->GetObject<leo::ConstellationNodeData>();
+        auto targetNodeData = targetNode->GetObject<leo::ConstellationNodeData>();
+        if (!sourceNodeData || !targetNodeData) {
+            NS_LOG_ERROR("ConstellationNodeData not found for nodes");
+            return;
+        }
 
         // Create the link
         PointToPointHelper p2p;
-        p2p.SetDeviceAttribute("DataRate", StringValue("10Gbps"));
+        if (sourceNodeData->GetType() == "ground_station" || targetNodeData->GetType() == "ground_station") {
+            // Feeder link
+            p2p.SetDeviceAttribute("DataRate", StringValue(dataRateFeederStream.str()));
+        } else {
+            // ISL link
+            p2p.SetDeviceAttribute("DataRate", StringValue(dataRateIslStream.str()));
+        }
         p2p.SetChannelAttribute("Delay", StringValue(delayStream.str()));
 
         NetDeviceContainer devices = p2p.Install(sourceNode, targetNode);

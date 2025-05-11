@@ -99,17 +99,17 @@ const SwitchingTable* CustomRoutingProtocol::GetCurrentValidSwitchingTable(Time 
 Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4Header& header,
     Ptr<NetDevice> oif, Socket::SocketErrno& sockerr) {
         Ipv4Address dst = header.GetDestination();
-        m_trafficManager.IncreasePacketSentProxy(header);
-        if (dst == Ipv4Address("102.102.102.102")){
-            NS_LOG_DEBUG("DEBUG");
+        NS_LOG_DEBUG("----------> RouteOutput called for destination: " << dst << " at " << Simulator::Now().GetSeconds());
+        leo::PacketIdTag tag;
+        if (packet->PeekPacketTag(tag)) {
+            NS_LOG_DEBUG("Packet Tag - AppId: " << tag.GetAppId() << " Packet Number: " << tag.GetPacketNumber());
+        } else {
+            NS_LOG_WARN("No PacketIdTag found on the packet.");
+            if (dst == Ipv4Address("102.102.102.102")){
+                NS_LOG_DEBUG("DEBUG");
+            }
         }
-    NS_LOG_DEBUG("----------> RouteOutput called for destination: " << dst << " at " << Simulator::Now().GetSeconds());
-    leo::PacketIdTag tag;
-    if (packet->PeekPacketTag(tag)) {
-        NS_LOG_DEBUG("Packet Tag ID: " << tag.GetId());
-    } else {
-        NS_LOG_WARN("No PacketIdTag found on the packet.");
-    }
+
     // Resolve the destination node ID from the IP address
     std::string destNodeId = m_networkState.GetNodeIdForIp(dst);
     if (destNodeId=="") {
@@ -118,21 +118,22 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
         return nullptr;
     }
 
+        auto nodeData = m_node->GetObject<leo::ConstellationNodeData>();
+        if (!nodeData) {
+            NS_LOG_ERROR("ConstellationNodeData not found on node");
+            sockerr = Socket::ERROR_NOROUTETOHOST;
+            return nullptr;
+        }
+        std::string currentNodeId = nodeData->GetSourceId();
+
     const SwitchingTable* currentTable = GetCurrentValidSwitchingTable(Simulator::Now());
     // Assume there is always a valid switching table for now
     if (currentTable == nullptr) {
         NS_LOG_ERROR("No valid switching table found for the current time.");
+        m_trafficManager.IncreaseActivelyDroppedPacketProxy(header, tag.GetAppId(), currentNodeId);
         sockerr = Socket::ERROR_NOROUTETOHOST;
         return nullptr;
     }
-
-    auto nodeData = m_node->GetObject<leo::ConstellationNodeData>();
-    if (!nodeData) {
-        NS_LOG_ERROR("ConstellationNodeData not found on node");
-        sockerr = Socket::ERROR_NOROUTETOHOST;
-        return nullptr;
-    }
-    std::string currentNodeId = nodeData->GetSourceId();
 
     // Look up the next hop node ID in the switching table
     auto it = currentTable->routing_table.find(destNodeId);
@@ -144,21 +145,27 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
 
     //PrintRoutingTable(Create<OutputStreamWrapper>(&std::cout));
     std::string nextHopNodeId;
+    bool found = false;
     for (const auto& path : it->second){
         NS_LOG_DEBUG("Possible next hop: " << path);
         nextHopNodeId = path;
         // Check if link is active
-        if (!m_networkState.IsLinkActive(currentNodeId, nextHopNodeId)) {
-            NS_LOG_DEBUG("Link between " << currentNodeId << " and " << nextHopNodeId << " is inactive at " << Simulator::Now().GetSeconds() <<
-                            ". Trying to get backup path...");
-            continue;
+        if (m_networkState.IsLinkActive(currentNodeId, nextHopNodeId)) {
+            // Found active link
+            found = true;
+            break;
+
         }
         else {
-            // Found active link
-            break;
+            NS_LOG_DEBUG("Link between " << currentNodeId << " and " << nextHopNodeId << " is inactive at " << Simulator::Now().GetSeconds() <<
+            ". Trying to get backup path...");
+            continue;
         }
+    }
+    if (!found) {
         // No possible path found
         NS_LOG_WARN("No active link found  between " << currentNodeId << " and " << nextHopNodeId << " is inactive at " << Simulator::Now().GetSeconds());
+        m_trafficManager.IncreaseActivelyDroppedPacketProxy(header, tag.GetAppId(), currentNodeId);
         sockerr = Socket::ERROR_NOROUTETOHOST;
         return nullptr;
     }
@@ -204,7 +211,7 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
             return nullptr;
         }
     NS_LOG_DEBUG("SENDING packet to ---> " << m_networkState.GetNodeIdForIp(nextHopDeviceIp) << " with IP: " << nextHopDeviceIp);
-
+    m_trafficManager.IncreasePacketSentProxy(header, tag);
     return route;
 }
 
@@ -222,6 +229,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
     uint32_t incoming_interface = m_ipv4->GetInterfaceForDevice(idev);
     if (incoming_interface == uint32_t(-1)) { // Check if the interface is invalid
         NS_LOG_WARN("No interface found for the arriving NetDevice.");
+        ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
         return false;
     }
     Ipv4Address incomingIp = m_ipv4->GetAddress(incoming_interface, 0).GetLocal();
@@ -229,8 +237,16 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
     // Get the Node ID where the packet was received
     Ptr<Node> node = m_ipv4->GetObject<Node>();
     uint32_t nodeId = node->GetId();
+    std::string currentNodeId = m_networkState.GetSourceId(nodeId);
+    leo::PacketIdTag tag;
+    packet->PeekPacketTag(tag);
+    m_trafficManager.IncreasePacketHopCountProxy(header, tag);
+    if (tag.GetAppId() == 120 && tag.GetPacketNumber() == 125 && currentNodeId== "IRIDIUM 118") {
+        NS_LOG_DEBUG("DEBUG");
+    }
+    NS_LOG_DEBUG("Packet Tag - AppId: " << tag.GetAppId() << " Packet Number: " << tag.GetPacketNumber());
 
-    NS_LOG_DEBUG("--> RECEIVED Packet with destination " << dst << " on Node ID: " << m_networkState.GetSourceId(nodeId)
+    NS_LOG_DEBUG("--> RECEIVED Packet with Tag - AppId: " << tag.GetAppId() << " Packet Number: " << tag.GetPacketNumber() << " with destination " << dst << " on Node ID: " << currentNodeId
                  << ", interface " << incoming_interface
                  << " with IP address: " << incomingIp);
 
@@ -239,18 +255,20 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
         for (uint32_t j = 0; j < m_ipv4->GetNAddresses(i); ++j) {
             Ipv4Address localAddr = m_ipv4->GetAddress(i, j).GetLocal();
             if (dst == localAddr) {
-                NS_LOG_DEBUG("Packet is for this node (Node ID: " << nodeId << ", interface " << i << "), delivering to application layer...");
-                m_trafficManager.IncreasePacketReceivedProxy(header);
+                NS_LOG_DEBUG("DESTINATION REACHED by packet (on Node ID: " << nodeId << ", interface " << i << "), delivering to application layer...");
+                m_trafficManager.IncreasePacketReceivedProxy(header, tag);
                 lcb(packet, header, i);
                 return true;
             }
         }
     }
+
     // Resolve the destination node ID from the IP address
     std::string destNodeId = m_networkState.GetNodeIdForIp(dst);
     NS_LOG_DEBUG("Destination node ID for " << dst << ": " << destNodeId);
     if (destNodeId == "") {
         NS_LOG_WARN("No node ID found for destination IP: " << dst);
+        m_trafficManager.IncreaseActivelyDroppedPacketProxy(header, tag.GetAppId(), currentNodeId);
         ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
         return false;
     }
@@ -258,28 +276,21 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
     // Assume there is always a valid switching table for now
     if (currentTable == nullptr) {
         NS_LOG_ERROR("No valid switching table found for the current time.");
+        m_trafficManager.IncreaseActivelyDroppedPacketProxy(header, tag.GetAppId(), currentNodeId);
         ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
         return false;
     }
-
-    auto nodeData = m_node->GetObject<leo::ConstellationNodeData>();
-    if (!nodeData) {
-        NS_LOG_ERROR("ConstellationNodeData not found on node");
-        ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
-        return false;
-    }
-    std::string currentNodeId = nodeData->GetSourceId();
 
     // Look up the next hop node ID in the switching table
     auto it = currentTable->routing_table.find(destNodeId);
     if (it == currentTable->routing_table.end()) {
         NS_LOG_WARN("No route found at "<< Simulator::Now().GetSeconds() << " from current node " << currentNodeId << " for destination node: " << destNodeId);
+        m_trafficManager.IncreaseActivelyDroppedPacketProxy(header, tag.GetAppId(), currentNodeId);
         ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
         return false;
     }
     //PrintRoutingTable(Create<OutputStreamWrapper>(&std::cout));
     std::string nextHopNodeId;
-    Ipv4Address nextHopDeviceIp;
     for (const auto& path : it->second){
         NS_LOG_DEBUG("Possible next hop: " << path);
         nextHopNodeId = path;
@@ -294,11 +305,13 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
         std::pair<Ptr<NetDevice>, Ptr<NetDevice>> link_devices = m_networkState.GetDevicesForNextHop(currentNodeId, nextHopNodeId);
         if (!link_devices.first) {
             NS_LOG_WARN("No valid device found on current node that is connecting to next hop node: " << nextHopNodeId);
+            m_trafficManager.IncreaseActivelyDroppedPacketProxy(header, tag.GetAppId(), currentNodeId);
             ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
             return false;
         }
         if (!link_devices.second) {
             NS_LOG_WARN("No valid device found on next node that this node connects to: " << nextHopNodeId);
+            m_trafficManager.IncreaseActivelyDroppedPacketProxy(header, tag.GetAppId(), currentNodeId);
             ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
             return false;
         }
@@ -317,11 +330,12 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
         Ipv4Address nextHopDeviceIp = m_networkState.GetIpAddressForDevice(link_devices.second);
         if (nextHopDeviceIp == Ipv4Address()) {
             NS_LOG_ERROR("GetIpAddressForDevice returned an invalid IP address for device: " << link_devices.second);
+            m_trafficManager.IncreaseActivelyDroppedPacketProxy(header, tag.GetAppId(), currentNodeId);
             ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
             return false;
         }
         // Found active link
-        NS_LOG_DEBUG("Next hop destination " << destNodeId << " with local device IP: " << nextHopDeviceIp);
+        NS_LOG_DEBUG("Next hop destination " << destNodeId << " with local device IP: " << nextHopDeviceIp);  // TODO: next hop id instead of destination
 
         // Create the route
         Ptr<Ipv4Route> route = Create<Ipv4Route>();
@@ -340,6 +354,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
                     NS_LOG_INFO("  Interface " << i << ", Address " << j << ": " << m_ipv4->GetAddress(i, j).GetLocal());
                 }
             }
+            m_trafficManager.IncreaseActivelyDroppedPacketProxy(header, tag.GetAppId(), currentNodeId);
             ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
             return false;
         }
@@ -351,11 +366,10 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
     }
 
     // If no valid next hop was found, drop the packet
-    if (nextHopNodeId.empty()) {
-        NS_LOG_WARN("No valid next hop found for destination " << destNodeId << " from current node " << currentNodeId);
-        ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
-        return false;
-    }
+    NS_LOG_WARN("No valid next hop found for destination " << destNodeId << " from current node " << currentNodeId);
+    m_trafficManager.IncreaseActivelyDroppedPacketProxy(header, tag.GetAppId(), currentNodeId);
+    ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
+
     return false;
 }
 

@@ -16,6 +16,8 @@ class FileReader {
 public:
     std::string starttime;
     std::string endtime;
+    std::uint16_t dataRateIslMpbs = 1000;
+    std::uint16_t dataRateFeederMpbs = 100;
 
     // Structures to hold node and edge data
     struct Node {
@@ -89,6 +91,11 @@ public:
     // Traffic
     void readTrafficFromJson(const std::string& filename);
 
+    // Dynamic Edges
+    void readDynamicEdgesFromJson(const std::string& filename, std::chrono::_V2::system_clock::time_point& simulationStartTime);
+    void readDynamicEdgesFromFolder(const std::string& foldername, std::chrono::_V2::system_clock::time_point& simulationStartTime);
+
+
     // Getters for private members
     const std::vector<std::unique_ptr<Node>>& GetNodes() const { return nodes; }
     const std::vector<Edge>& GetEdges() const { return edges; }
@@ -98,11 +105,13 @@ public:
     const std::map<double, std::vector<ConstellationEvent>>& GetFailures() const { return constellation_failures_map; }
     std::map<std::pair<std::string, std::string>, double> GetAllUniqueLinks() const;
     const std::vector<Traffic>& GetTraffic() const { return traffic_vector; }
+    const std::map<std::pair<double, double>, std::vector<Edge>>& GetEdgesByValidityPeriod() const { return edges_by_validity_period; }
 
     // Visulization
     void printGraph() const;
     void printSwitchtingTables() const;
     void printConstellationEvents() const;
+    void printDynamicEdges() const;
 
 private:
     // Vectors to hold nodes and edges
@@ -112,6 +121,7 @@ private:
     std::map<double, std::vector<ConstellationEvent>> constellation_events_map;
     std::map<double, std::vector<ConstellationEvent>> constellation_failures_map;
     std::vector<Traffic> traffic_vector;
+    std::map<std::pair<double, double>, std::vector<Edge>> edges_by_validity_period;
 
     // Map for quick node access by ID
     std::unordered_map<std::string, Node*> node_map;

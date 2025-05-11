@@ -61,6 +61,10 @@ void FileReader::readGraphFromJson(const std::string& filename) {
 
     starttime = j["starttime"];
     endtime = j["endtime"];
+    if (j.contains("data_rate_isl_mbps") && j.contains("data_rate_feeder_mbps")){
+        dataRateIslMpbs = j["data_rate_isl_mbps"];
+        dataRateFeederMpbs = j["data_rate_feeder_mbps"];
+    }
 
     for (const auto& node_data : j["nodes"]) {
         if (node_data["attributes"]["type"] == "satellite") {
@@ -240,6 +244,51 @@ std::map<std::pair<std::string, std::string>, double> FileReader::GetAllUniqueLi
     }
     return uniqueLinks;
 }
+void FileReader::readDynamicEdgesFromJson(const std::string& filename, std::chrono::_V2::system_clock::time_point& simulationStartTime){
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return;
+    }
+
+    json j;
+    file >> j;
+    std::string valid_from = j["valid_from"];
+    std::string valid_until = j["valid_to"];
+    auto valid_from_time = parseTimestampToTimePoint(valid_from);
+    auto valid_until_time = parseTimestampToTimePoint(valid_until);
+
+    // Calculate the simulation time as seconds since the start time
+    auto validFromSimTime = std::chrono::duration<double>(valid_from_time - simulationStartTime).count();
+    auto validUntilSimTime = std::chrono::duration<double>(valid_until_time - simulationStartTime).count();
+    NS_LOG_DEBUG("Valid from: " << validFromSimTime << ", Valid until: " << validUntilSimTime);
+    // Parse switching tables
+    for (auto& edge : j["edges"]) {
+        Edge dynamic_edge;
+        dynamic_edge.source = edge["source"];
+        dynamic_edge.target = edge["target"];
+        dynamic_edge.weight = edge["weight"];
+        edges_by_validity_period[{validFromSimTime, validUntilSimTime}].push_back(dynamic_edge);
+    }
+}
+
+void FileReader::readDynamicEdgesFromFolder(const std::string& foldername,std::chrono::_V2::system_clock::time_point& simulationStartTime){
+    namespace fs = std::filesystem; // Use the filesystem namespace
+
+    try {
+        // Iterate through all files in the folder
+        for (const auto& entry : fs::directory_iterator(foldername)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".json") {
+                // Every json file holds all dynamic edges for one validity period
+                std::string filename = entry.path().string();
+                NS_LOG_DEBUG("Reading dynamic edges from file: " << filename);
+                readDynamicEdgesFromJson(filename, simulationStartTime);
+            }
+        }
+    } catch (const std::exception& e) {
+        NS_LOG_ERROR("Error reading dynamic edges from folder: " << e.what());
+    }
+}
 
 void FileReader::printGraph() const {
     std::cout << "Start Time: " << starttime << std::endl;
@@ -311,6 +360,22 @@ void FileReader::printConstellationEvents() const {
         }
     }
 }
+void FileReader::printDynamicEdges() const {
+    if (edges_by_validity_period.empty()) {
+        std::cout << "No dynamic edges available." << std::endl;
+        return;
+    }
 
+    std::cout << "Dynamic Edges:" << std::endl;
+    for (const auto& [validityPeriod, edges] : edges_by_validity_period) {
+        std::cout << "Validity Period: " << validityPeriod.first << " to " << validityPeriod.second << std::endl;
+        for (const auto& edge : edges) {
+            std::cout << "  Source: " << edge.source
+                      << ", Target: " << edge.target
+                      << ", Weight: " << edge.weight
+                      << std::endl;
+        }
+    }
+}
 } // namespace leo
 } // namespace ns3

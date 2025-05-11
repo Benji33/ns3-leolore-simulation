@@ -90,6 +90,18 @@ std::vector<std::pair<std::string, std::string>> NetworkState::GetActiveLinks() 
     return activeLinks;
 }
 
+LinkInfo& NetworkState::GetLinkInfo(const std::string& srcId, const std::string& dstId) {
+    auto key = NormalizeKey(srcId, dstId);
+    auto it = m_links.find(key);
+    if (it != m_links.end()) {
+        return it->second;
+    }
+
+    // If the link is not found, throw an exception or return a static invalid LinkInfo
+    static LinkInfo invalidLinkInfo; // Default-constructed invalid LinkInfo
+    return invalidLinkInfo;
+}
+
 const LinkInfo& NetworkState::GetLinkInfo(const std::string& srcId, const std::string& dstId) const {
     auto key = NormalizeKey(srcId, dstId);
     auto it = m_links.find(key);

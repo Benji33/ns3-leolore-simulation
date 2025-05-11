@@ -60,6 +60,7 @@ public:
     uint32_t GetNs3NodeId(const std::string& sourceId) const;
     std::string GetSourceId(uint32_t ns3NodeId) const;
     Ptr<Node> GetNodeBySourceId(std::string sourceId) const;
+    LinkInfo& GetLinkInfo(const std::string& srcId, const std::string& dstId);
     const LinkInfo& GetLinkInfo(const std::string& srcId, const std::string& dstId) const;
     std::pair<Ptr<NetDevice>, Ptr<NetDevice>> GetDevicesForNextHop(const std::string& currentNodeId, const std::string& nextHopNodeId) const;
     std::string GetNodeIdForIp(const Ipv4Address& ip) const;

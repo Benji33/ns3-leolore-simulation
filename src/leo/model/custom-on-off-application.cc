@@ -82,7 +82,8 @@ void CustomOnOffApplication::SendPacket() {
 
     Ptr<Packet> packet = Create<Packet>(m_packetSize);
     leo::PacketIdTag tag;
-    tag.SetId(m_appId);
+    tag.SetId(m_appId, m_sentPackets);
+    tag.SetTimestamp(Simulator::Now());
     packet->AddPacketTag(tag);
     // Send the packet
     NS_LOG_DEBUG("Sending packet at " << Simulator::Now().GetSeconds());

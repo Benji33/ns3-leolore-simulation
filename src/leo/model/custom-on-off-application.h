@@ -1,3 +1,6 @@
+#ifndef CUSTOM_ON_OFF_APPLICATION_H
+#define CUSTOM_ON_OFF_APPLICATION_H
+
 #include "ns3/application.h"
 #include "ns3/packet.h"
 #include "ns3/ipv4-address.h"
@@ -44,14 +47,39 @@ private:
 };
 class PacketIdTag : public Tag {
     public:
-        void SetId(uint32_t id) { m_id = id; }
-        uint32_t GetId() const { return m_id; }
+        void SetId(int appId, uint64_t packetNumber) {
+            m_appId = appId;
+            m_packetNumber = packetNumber;
+        }
 
-        void Serialize(TagBuffer i) const override { i.WriteU32(m_id); }
-        void Deserialize(TagBuffer i) override { m_id = i.ReadU32(); }
-        uint32_t GetSerializedSize() const override { return 4; }
-        void Print(std::ostream &os) const override { os << "PacketId=" << m_id; }
+        int GetAppId() const { return m_appId; }
+        uint64_t GetPacketNumber() const { return m_packetNumber; }
 
+        void Serialize(TagBuffer i) const override {
+            i.WriteU32(m_appId);                     // Serialize App ID
+            i.WriteU64(m_packetNumber);              // Serialize Packet Number
+            i.WriteU16(m_hop_count);                 // Serialize Hop Count
+            i.WriteU64(m_timestamp_sent.GetNanoSeconds()); // Serialize Timestamp as nanoseconds
+        }
+
+        void Deserialize(TagBuffer i) override {
+            m_appId = i.ReadU32();                   // Deserialize App ID
+            m_packetNumber = i.ReadU64();            // Deserialize Packet Number
+            m_hop_count = i.ReadU16();               // Deserialize Hop Count
+            m_timestamp_sent = NanoSeconds(i.ReadU64()); // Deserialize Timestamp as nanoseconds
+        }
+        void SetTimestamp(Time t) { m_timestamp_sent = t; }
+        Time GetTimestamp() const { return m_timestamp_sent; }
+
+        uint32_t GetSerializedSize() const override {
+            return sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint16_t) + sizeof(uint64_t);
+        }
+        void IncreaseHopCount() { ++m_hop_count;}
+        uint16_t GetHopCount() const { return m_hop_count; }
+
+        void Print(std::ostream& os) const override {
+            os << "AppId=" << m_appId << ", PacketNumber=" << m_packetNumber;
+        }
         static TypeId GetTypeId() {
             static TypeId tid = TypeId("PacketIdTag")
                 .SetParent<Tag>()
@@ -63,8 +91,12 @@ class PacketIdTag : public Tag {
         }
 
     private:
-        uint32_t m_id;
+        int m_appId;
+        uint64_t m_packetNumber;
+        Time m_timestamp_sent;
+        uint16_t m_hop_count = 0;
     };
 
 }  // namespace leo
 }  // namespace ns3
+#endif

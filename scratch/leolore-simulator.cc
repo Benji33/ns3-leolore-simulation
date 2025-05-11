@@ -16,12 +16,36 @@
 #include <unordered_set>
 #include <ctime>
 #include <chrono>
+#include <regex>
 #include <iomanip>
 #include <boost/functional/hash.hpp>
+#include "ns3/flow-monitor-helper.h"
 
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("LeoLoreSimulator");
+
+std::chrono::system_clock::time_point ParseFolderNameToTimePoint(const std::string& folderName) {
+    // Replace underscores with spaces and dashes with colons for parsing
+    std::string formatted = folderName;
+    std::replace(formatted.begin(), formatted.end(), '_', 'T'); // Replace '_' with 'T'
+
+    // Replace dashes in the time portion with colons
+    size_t timeStart = formatted.find('T') + 1;
+    std::replace(formatted.begin() + timeStart, formatted.end(), '-', ':');
+
+    // Parse the formatted string into a std::tm structure
+    std::tm tm = {};
+    std::istringstream ss(formatted);
+    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
+    if (ss.fail()) {
+        throw std::runtime_error("Failed to parse folder name: " + folderName);
+    }
+
+    // Convert the std::tm structure to a time_point
+    std::time_t t = timegm(&tm);
+    return std::chrono::system_clock::from_time_t(t);
+}
 
 int main(int argc, char *argv[]) {
     std::ofstream nullStream("/dev/null");
@@ -31,7 +55,7 @@ int main(int argc, char *argv[]) {
     LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
     LogComponentEnable("CustomRoutingProtocol", LOG_LEVEL_INFO);
     LogComponentEnable("IpAssignmentHelper", LOG_LEVEL_INFO);
-    LogComponentEnable("TopologyManager", LOG_LEVEL_INFO);
+    LogComponentEnable("TopologyManager", LOG_LEVEL_DEBUG);
     LogComponentEnable("RoutingManager", LOG_LEVEL_INFO);
     LogComponentEnable("FileReader", LOG_LEVEL_INFO);
     LogComponentEnable("NetworkState", LOG_LEVEL_INFO);
@@ -44,8 +68,13 @@ int main(int argc, char *argv[]) {
     // Step 1: Parse in graph JSON file
     ns3::leo::FileReader reader;
     //uint64_t simulationStart = 1742599254; // 2025-03-21T11:20:54
+    // 1742556073 , "2025-03-21 11:21:13+00:00"
+    // Generation Timestamp:
+    /*std::string input = "2025-03-21T11:20:30"; //"2025-03-21 11:21:13"
+    std::string formatted = input.substr(0, 19); // Extract "2025-03-21 11:21:13"
+    std::replace(formatted.begin(), formatted.end(), ' ', 'T'); // Replace space with 'T'
     std::tm tm = {};
-    std::istringstream ss("2025-03-21T11:20:00");//"2025-03-21T11:20:30");
+    std::istringstream ss(formatted);//"2025-03-21T11:20:30");
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
     std::time_t t = timegm(&tm);
     auto simulationStart = std::chrono::system_clock::from_time_t(t);
@@ -54,8 +83,28 @@ int main(int argc, char *argv[]) {
     std::cout << "Simulation start time: "
     << std::put_time(std::gmtime(&simulationStartTimeT), "%Y-%m-%d %H:%M:%S UTC")
     << std::endl;
+
     std::string base_path = "/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/";
-    std::string file_name = "1742556000";//"1742556030";
+    std::string file_name = std::to_string(t);//"1742556030";
+    */
+    std::string folderName = "2025-03-21_11-24-13";
+    double simulationEndTime = 15.0;
+    // Parse the folder name into a time_point
+    auto simulationStart = ParseFolderNameToTimePoint(folderName);
+
+    // Convert the time_point back to a time_t for logging
+    std::time_t simulationStartTimeT = std::chrono::system_clock::to_time_t(simulationStart);
+    std::cout << "Simulation start time: "
+                << std::put_time(std::gmtime(&simulationStartTimeT), "%Y-%m-%d %H:%M:%S UTC")
+                << std::endl;
+
+    // Use the folder name as the file_name
+    std::string base_path = "/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/";
+    std::string file_name = folderName;
+
+    // Example usage of the file_name
+    std::cout << "Base path: " << base_path << ", File name: " << file_name << std::endl;
+
     const bool simpleLoopAvoidance = true;
 
 
@@ -74,8 +123,12 @@ int main(int argc, char *argv[]) {
     // Failures
     reader.readConstellationEvents(base_path + file_name + "/failures.json", simulationStart, true);
 
+    // Traffic
     reader.readTrafficFromJson(base_path + file_name + "/traffic.json");
 
+    // Dynamic Edges
+    reader.readDynamicEdgesFromFolder(base_path + file_name + "/dynamic_edge_weights", simulationStart);
+    //reader.printDynamicEdges();
     // Step 2: Create containers & nodes for ns-3 nodes
     // Map source IDs to ns-3 nodes
     // Create a network state object to manage the network state
@@ -122,7 +175,7 @@ int main(int argc, char *argv[]) {
 
     // Traffic settings
     for (const auto& traffic : reader.GetTraffic()) {
-        NS_LOG_INFO("Traffic: " << traffic.src_node_id << " → " << traffic.dst_node_id << ", Protocol: " << traffic.protocol
+        NS_LOG_DEBUG("Traffic: " << traffic.src_node_id << " → " << traffic.dst_node_id << ", Protocol: " << traffic.protocol
                                 << ", Start Time: " << traffic.start_time << ", Duration: " << traffic.duration
                                 << ", Packet Size: " << traffic.packet_size << ", Rate: " << traffic.rate);
     }
@@ -152,7 +205,7 @@ int main(int argc, char *argv[]) {
     /*std::unordered_map<std::string, std::vector<Ipv4Address>> nodeIdToIpMap =
         ipAssignmentHelper.AssignIpAddresses(reader.GetEdges(), networkState);
     */
-    ipAssignmentHelper.PrecreateAllLinks(reader.GetAllUniqueLinks(), networkState);
+    ipAssignmentHelper.PrecreateAllLinks(reader.GetAllUniqueLinks(), networkState, reader.dataRateIslMpbs, reader.dataRateFeederMpbs);
 
     // Disable links that are not active at the start of the simulation
     std::vector<ns3::leo::FileReader::Edge> edges = reader.GetEdges(); // Get edges from the FileReader
@@ -247,11 +300,21 @@ int main(int argc, char *argv[]) {
     // Schedule all events and failures
     topologyManager.ScheduleAllEvents(reader.GetConstellationEvents());
     topologyManager.ScheduleAllEvents(reader.GetFailures());
+    topologyManager.ScheduleLinkDistanceUpdates(reader.GetEdgesByValidityPeriod(), simulationStart);
 
+    //Ptr<FlowMonitor> flowMonitor;
+    //FlowMonitorHelper flowHelper;
+    //flowMonitor = flowHelper.InstallAll();
     // Step 10: Run the simulation
+    Simulator::Stop(Seconds(simulationEndTime));
     Simulator::Run();
-    Simulator::Destroy();
+    // Check for lost packets
+    //flowMonitor->CheckForLostPackets();
+    //flowMonitor->SerializeToXmlFile("TestFlowMonitor.xml", true, true);
 
+
+    Simulator::Destroy();
     std::cerr.rdbuf(oldCerrStreamBuf);
+
     return 0;
 }

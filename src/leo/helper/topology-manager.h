@@ -14,7 +14,9 @@ namespace leo {
 class TopologyManager {
 public:
     TopologyManager(AnimationInterface& anim);
-
+    void UpdateLinkDistances(const std::vector<FileReader::Edge>& dynamicEdges);
+    void ScheduleLinkDistanceUpdates(const std::map<std::pair<double, double>, std::vector<FileReader::Edge>>& edgesByValidityPeriod,
+                                      const std::chrono::system_clock::time_point& simulationStart);
     void ScheduleAllEvents(const std::map<double, std::vector<FileReader::ConstellationEvent>>& constellation_events_map);
 
 private:
