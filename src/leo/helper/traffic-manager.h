@@ -28,16 +28,20 @@ class TrafficManager {
         std::map<uint64_t, uint32_t> packet_hops = {};
         u_int16_t minHopCount = 9999;
         u_int16_t maxHopCount = 0;
-
+        uint32_t backupPathUsed = 0;
+        uint32_t loopAvoidanceTriggered = 0;
     };
 
 public:
-    TrafficManager(const std::vector<Traffic>& trafficVector);
-    void PrintTrafficSummary() const;
-    void ScheduleTraffic();
+    TrafficManager(const std::vector<Traffic>& trafficVector, NetworkState& networkState);
+    void WriteTrafficSummaryToCsv(const std::string& filePath) const;
+    void PrintTrafficSummary(const std::string& outputFolder, const uint8_t run, bool writeToCsv, int failureScenario) const;
+    void ScheduleTraffic(const std::string& outputFolder, const uint8_t run, bool writeToCsv, int failureScenario);
     void IncreasePacketSentProxy(Ipv4Header ipv4Header, leo::PacketIdTag tag);
     void IncreasePacketReceivedProxy(Ipv4Header ipv4Header, leo::PacketIdTag tag);
     void IncreasePacketHopCountProxy(Ipv4Header ipv4Header, leo::PacketIdTag tag);
+    void IncreaseBackupPathUsedProxy(Ipv4Header ipv4Header, leo::PacketIdTag tag);
+    void IncreaseLoopAvoidanceTriggeredProxy(Ipv4Header ipv4Header, leo::PacketIdTag tag);
     void IncreaseActivelyDroppedPacketProxy(Ipv4Header ipv4Header, int appId, std::string nodeId);
 private:
     void ScheduleTrafficEvent(const Traffic& traffic, int counter);

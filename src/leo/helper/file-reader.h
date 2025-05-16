@@ -77,7 +77,8 @@ public:
     //Helper
     std::chrono::_V2::system_clock::time_point parseTimestampToTimePoint(const std::string& timestampStr);
     double secondsSinceStart(const std::tm& t, const std::tm& start);
-
+    std::vector<std::string> GetFileNamesInFolder(const std::string& foldername);
+    int ExtractFailureNumber(const std::string& fileName);
     //Graph
     void readGraphFromJson(const std::string& filename);
 

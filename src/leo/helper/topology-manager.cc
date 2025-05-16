@@ -15,8 +15,11 @@ namespace leo {
 NS_LOG_COMPONENT_DEFINE("TopologyManager");
 const double speedOfLight = 299792.4580;
 
-TopologyManager::TopologyManager(AnimationInterface& anim)
-    : m_networkState(NetworkState::GetInstance()), m_anim(anim) {}
+TopologyManager::TopologyManager(AnimationInterface& anim, NetworkState& networkState)
+    : m_networkState(networkState), m_anim(&anim) {}
+
+TopologyManager::TopologyManager(NetworkState& networkState)
+    : m_networkState(networkState), m_anim(nullptr) {}
 
 
 void TopologyManager::ScheduleAllEvents(const std::map<double, std::vector<FileReader::ConstellationEvent>>& constellation_events_map) {

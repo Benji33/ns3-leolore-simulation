@@ -13,7 +13,8 @@ namespace leo {
 
 class TopologyManager {
 public:
-    TopologyManager(AnimationInterface& anim);
+    TopologyManager(AnimationInterface& anim, NetworkState& networkState);
+    TopologyManager(NetworkState& networkState);
     void UpdateLinkDistances(const std::vector<FileReader::Edge>& dynamicEdges);
     void ScheduleLinkDistanceUpdates(const std::map<std::pair<double, double>, std::vector<FileReader::Edge>>& edgesByValidityPeriod,
                                       const std::chrono::system_clock::time_point& simulationStart);
@@ -22,7 +23,7 @@ public:
 private:
     ns3::NodeContainer m_nodes;
     leo::NetworkState& m_networkState;
-    AnimationInterface& m_anim;
+    AnimationInterface* m_anim;
 
     void ApplyEvent(FileReader::ConstellationEvent& event);
 };

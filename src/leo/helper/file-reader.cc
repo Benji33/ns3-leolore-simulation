@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <set>
 #include <filesystem>
+#include <regex>
 
 namespace ns3
 {
@@ -47,6 +48,50 @@ double FileReader::secondsSinceStart(const std::tm& t, const std::tm& start) {
     return std::difftime(time1, time0);
 }
 
+std::vector<std::string> FileReader::GetFileNamesInFolder(const std::string& folderPath) {
+    namespace fs = std::filesystem;
+    std::vector<std::string> fileNames;
+
+    try {
+        for (const auto& entry : fs::directory_iterator(folderPath)) {
+            if (entry.is_regular_file()) {
+                fileNames.push_back(entry.path().filename().string());
+            }
+        }
+
+        // Sort the file names based on the numeric value in the file name
+        std::sort(fileNames.begin(), fileNames.end(), [](const std::string& a, const std::string& b) {
+            std::regex scenarioRegex(R"(failures_(\d+)\.json)");
+            std::smatch matchA, matchB;
+
+            int numA = 0, numB = 0;
+            if (std::regex_search(a, matchA, scenarioRegex) && matchA.size() > 1) {
+                numA = std::stoi(matchA[1].str());
+            }
+            if (std::regex_search(b, matchB, scenarioRegex) && matchB.size() > 1) {
+                numB = std::stoi(matchB[1].str());
+            }
+
+            return numA < numB; // Sort by the extracted number
+        });
+
+    } catch (const std::exception& e) {
+        std::cerr << "Error accessing folder: " << e.what() << std::endl;
+    }
+
+    return fileNames;
+}
+
+int FileReader::ExtractFailureNumber(const std::string& fileName) {
+    std::regex failureRegex(R"(failures_(\d+)\.json)");
+    std::smatch match;
+
+    if (std::regex_search(fileName, match, failureRegex) && match.size() > 1) {
+        return std::stoi(match[1].str()); // Extract and convert the number to an integer
+    }
+
+    throw std::runtime_error("Invalid failure file name format: " + fileName);
+}
 
 // Implementation of readGraphFromJson
 void FileReader::readGraphFromJson(const std::string& filename) {
@@ -129,6 +174,7 @@ void FileReader::readSwitchingTableFromJson(const std::string& filename) {
 
 void FileReader::readAllSwitchingTablesFromFolder(const std::string& foldername) {
     namespace fs = std::filesystem; // Use the filesystem namespace
+    raw_switching_tables.clear(); // Clear any existing switching tables
 
     try {
         // Iterate through all files in the folder
@@ -150,6 +196,13 @@ void FileReader::readConstellationEvents(const std::string& filename, std::chron
     if (!file.is_open()) {
         NS_LOG_ERROR("Failed to open " << filename);
         return;
+    }
+    // Clear previous events
+    if (failures){
+        constellation_failures_map.clear();
+    }
+    else{
+        constellation_events_map.clear();
     }
 
     json data;
@@ -195,6 +248,8 @@ void FileReader::readTrafficFromJson(const std::string& filename){
         std::cerr << "Error: Could not open file " << filename << std::endl;
         return;
     }
+    //clear previous traffic
+    traffic_vector.clear();
 
     json j;
     file >> j;

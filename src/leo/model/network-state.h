@@ -39,11 +39,8 @@ struct LinkInfo {
 
 class NetworkState {
 public:
-    // Singleton
-    static NetworkState& GetInstance() {
-        static NetworkState instance;
-        return instance;
-    }
+    NetworkState() = default;
+    ~NetworkState() = default;
 
     void RegisterNode(Ptr<Node> networkNode, uint32_t ns3NodeId, const std::string& sourceId, bool isSatellite);
     void RegisterInterfaces(uint32_t ns3NodeId, const std::string& sourceId, Ipv4InterfaceContainer interfaces);
@@ -80,7 +77,6 @@ public:
     NetworkState& operator=(const NetworkState&) = delete;
 
 private:
-    NetworkState() = default;
 
     NodeContainer m_nodes;
     NodeContainer m_groundStations;

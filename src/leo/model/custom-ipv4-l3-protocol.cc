@@ -18,8 +18,8 @@ TypeId CustomRoutingProtocol::GetTypeId() {
     return tid;
 }
 
-CustomRoutingProtocol::CustomRoutingProtocol(Ptr<Node> node, leo::TrafficManager &trafficManager, const bool simpleLoopAvoidance)
-: m_node(node), m_networkState(NetworkState::GetInstance()), m_trafficManager(trafficManager), m_simpleLoopAvoidance(simpleLoopAvoidance) {}
+CustomRoutingProtocol::CustomRoutingProtocol(Ptr<Node> node, leo::TrafficManager &trafficManager, NetworkState& networkState, const bool simpleLoopAvoidance, const bool useBackupRoute)
+: m_node(node), m_networkState(networkState), m_trafficManager(trafficManager), m_simpleLoopAvoidance(simpleLoopAvoidance), m_useBackupRoute(useBackupRoute) {}
 
 CustomRoutingProtocol::~CustomRoutingProtocol() {}
 
@@ -106,7 +106,7 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
         } else {
             NS_LOG_WARN("No PacketIdTag found on the packet.");
             if (dst == Ipv4Address("102.102.102.102")){
-                NS_LOG_DEBUG("DEBUG");
+                NS_LOG_WARN("Encountered failure IP 102.102.102.102");
             }
         }
 
@@ -146,20 +146,35 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
     //PrintRoutingTable(Create<OutputStreamWrapper>(&std::cout));
     std::string nextHopNodeId;
     bool found = false;
-    for (const auto& path : it->second){
-        NS_LOG_DEBUG("Possible next hop: " << path);
-        nextHopNodeId = path;
-        // Check if link is active
-        if (m_networkState.IsLinkActive(currentNodeId, nextHopNodeId)) {
-            // Found active link
-            found = true;
-            break;
-
+    int iterCounter = 0;
+    if (!m_useBackupRoute){
+        NS_LOG_DEBUG("Only considering primary path for destination: " << destNodeId);
+        // Only use the primary path
+        if (!it->second.empty()) {
+            nextHopNodeId = it->second.front();
+            if (m_networkState.IsLinkActive(currentNodeId, nextHopNodeId)) {
+                found = true;
+            } else {
+                NS_LOG_WARN("Primary link between " << currentNodeId << " and " << nextHopNodeId << " is inactive.");
+            }
         }
-        else {
-            NS_LOG_DEBUG("Link between " << currentNodeId << " and " << nextHopNodeId << " is inactive at " << Simulator::Now().GetSeconds() <<
-            ". Trying to get backup path...");
-            continue;
+    } else {
+        for (const auto& path : it->second){
+            iterCounter++;
+            NS_LOG_DEBUG("Possible next hop: " << path);
+            nextHopNodeId = path;
+            // Check if link is active
+            if (m_networkState.IsLinkActive(currentNodeId, nextHopNodeId)) {
+                // Found active link
+                found = true;
+                break;
+
+            }
+            else {
+                NS_LOG_DEBUG("Link between " << currentNodeId << " and " << nextHopNodeId << " is inactive at " << Simulator::Now().GetSeconds() <<
+                ". Trying to get backup path...");
+                continue;
+            }
         }
     }
     if (!found) {
@@ -190,6 +205,9 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
     }
     NS_LOG_DEBUG("Next hop IP for destination " << destNodeId << ": " << nextHopDeviceIp);
 
+    if (m_useBackupRoute && iterCounter > 1){
+        m_trafficManager.IncreaseBackupPathUsedProxy(header, tag);
+    }
     // Create the route
     Ptr<Ipv4Route> route = Create<Ipv4Route>();
     route->SetDestination(dst);
@@ -238,6 +256,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
     Ptr<Node> node = m_ipv4->GetObject<Node>();
     uint32_t nodeId = node->GetId();
     std::string currentNodeId = m_networkState.GetSourceId(nodeId);
+
     leo::PacketIdTag tag;
     packet->PeekPacketTag(tag);
     m_trafficManager.IncreasePacketHopCountProxy(header, tag);
@@ -265,6 +284,9 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
 
     // Resolve the destination node ID from the IP address
     std::string destNodeId = m_networkState.GetNodeIdForIp(dst);
+    if (currentNodeId =="IRIDIUM 163" && destNodeId == "632430d9e10e1"){
+        NS_LOG_DEBUG("DEBUG");
+    }
     NS_LOG_DEBUG("Destination node ID for " << dst << ": " << destNodeId);
     if (destNodeId == "") {
         NS_LOG_WARN("No node ID found for destination IP: " << dst);
@@ -291,7 +313,15 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
     }
     //PrintRoutingTable(Create<OutputStreamWrapper>(&std::cout));
     std::string nextHopNodeId;
+    int iterCounter = 0;
     for (const auto& path : it->second){
+        iterCounter++;
+        // if use of backup route is not allowed, break after the first loops iteration
+        if (!m_useBackupRoute && iterCounter > 1) {
+            NS_LOG_DEBUG("Only considering primary path for destination: " << destNodeId);
+            break;
+        }
+
         NS_LOG_DEBUG("Possible next hop: " << path);
         nextHopNodeId = path;
 
@@ -324,6 +354,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
             if (link_devices.first == idev) {
                 NS_LOG_WARN("LOOP - Next hop " << nextHopNodeId << " is the same as the previous hop " << previousHopNodeId
                                         << ". Attempting to use a backup route...");
+                m_trafficManager.IncreaseLoopAvoidanceTriggeredProxy(header, tag);
                 continue; // Skip this path and try the next one
             }
         }
@@ -335,6 +366,9 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
             return false;
         }
         // Found active link
+        if (m_useBackupRoute && iterCounter > 1) {
+            m_trafficManager.IncreaseBackupPathUsedProxy(header, tag);
+        }
         NS_LOG_DEBUG("Next hop destination " << destNodeId << " with local device IP: " << nextHopDeviceIp);  // TODO: next hop id instead of destination
 
         // Create the route
@@ -366,7 +400,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
     }
 
     // If no valid next hop was found, drop the packet
-    NS_LOG_WARN("No valid next hop found for destination " << destNodeId << " from current node " << currentNodeId);
+    NS_LOG_DEBUG("No valid next hop found for destination " << destNodeId << " from current node " << currentNodeId);
     m_trafficManager.IncreaseActivelyDroppedPacketProxy(header, tag.GetAppId(), currentNodeId);
     ecb(packet, header, Socket::ERROR_NOROUTETOHOST);
 
