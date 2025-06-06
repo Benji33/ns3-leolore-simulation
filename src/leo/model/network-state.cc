@@ -138,7 +138,7 @@ std::pair<Ptr<NetDevice>, Ptr<NetDevice>> NetworkState::GetDevicesForNextHop(con
 }
 
 void NetworkState::EnableLink(std::string srcId, std::string dstId, double weight) {
-    if (dstId =="632430d9e1131"){
+    if (dstId =="IRIDIUM 103"){
         NS_LOG_DEBUG("Enabling link: " << srcId << " ↔ " << dstId);
     }
     auto key = NormalizeKey(srcId, dstId);

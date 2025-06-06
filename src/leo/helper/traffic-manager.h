@@ -22,6 +22,7 @@ class TrafficManager {
         uint32_t packetsSent = 0;
         uint32_t packetsReceived = 0;
         std::map<std::string, uint16_t> packetsActivelyDroppedOnNode = {};
+        std::vector<double> droppedTimes = {};
         double minLatency = 9999.99;
         double maxLatency = 0.0;
         double totalLatency = 0.0;

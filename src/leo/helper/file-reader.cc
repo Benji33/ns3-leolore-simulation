@@ -17,11 +17,19 @@ NS_LOG_COMPONENT_DEFINE("FileReader");
 using json = nlohmann::json;
 
 std::chrono::_V2::system_clock::time_point FileReader::parseTimestampToTimePoint(const std::string& timestampStr) {
-    // Split the timestamp into the main part and the fractional seconds
-    std::string mainPart = timestampStr.substr(0, timestampStr.find('.')); // Extract "2025-03-21T11:20:39"
-    std::string fractionalPart = timestampStr.substr(timestampStr.find('.') + 1, 6); // Extract "970771"
+    std::string ts = timestampStr;
+    auto spacePos = ts.find(' ');
+    if (spacePos != std::string::npos) ts[spacePos] = 'T';
+    auto plusPos = ts.find('+');
+    if (plusPos != std::string::npos) ts = ts.substr(0, plusPos);
+    auto zPos = ts.find('Z');
+    if (zPos != std::string::npos) ts = ts.substr(0, zPos);
+    if (ts.find('.') == std::string::npos) ts += ".000000";
 
-    // Parse the main part of the timestamp
+    // Split main and fractional part
+    std::string mainPart = ts.substr(0, ts.find('.'));
+    std::string fractionalPart = ts.substr(ts.find('.') + 1, 6);
+
     std::tm tm = {};
     std::istringstream ss(mainPart);
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
@@ -29,13 +37,8 @@ std::chrono::_V2::system_clock::time_point FileReader::parseTimestampToTimePoint
         throw std::runtime_error("Failed to parse timestamp: " + timestampStr);
     }
 
-    // Convert to time_t
     auto timeT = timegm(&tm);
-
-    // Convert to a time_point
     auto timePoint = std::chrono::_V2::system_clock::from_time_t(timeT);
-
-    // Add the fractional seconds as microseconds
     int microseconds = std::stoi(fractionalPart);
     timePoint += std::chrono::microseconds(microseconds);
 
@@ -106,6 +109,10 @@ void FileReader::readGraphFromJson(const std::string& filename) {
 
     starttime = j["starttime"];
     endtime = j["endtime"];
+    auto simStarttime = parseTimestampToTimePoint(starttime);
+    auto simEndtime = parseTimestampToTimePoint(endtime);
+    simulation_duration = std::chrono::duration<double>(simEndtime - simStarttime);
+
     if (j.contains("data_rate_isl_mbps") && j.contains("data_rate_feeder_mbps")){
         dataRateIslMpbs = j["data_rate_isl_mbps"];
         dataRateFeederMpbs = j["data_rate_feeder_mbps"];
@@ -163,7 +170,7 @@ void FileReader::readSwitchingTableFromJson(const std::string& filename) {
         for (auto& entry : table_data["table_data"].items()) {
             // Append all given paths
             for (auto& path : entry.value()) {
-                NS_LOG_DEBUG("Adding path: " << path.get<std::string>() << std::endl);
+                //NS_LOG_DEBUG("Adding path: " << path.get<std::string>() << std::endl);
                 table.table_data[entry.key()].push_back(path.get<std::string>());
             }
         }
@@ -329,6 +336,9 @@ void FileReader::readDynamicEdgesFromJson(const std::string& filename, std::chro
 
 void FileReader::readDynamicEdgesFromFolder(const std::string& foldername,std::chrono::_V2::system_clock::time_point& simulationStartTime){
     namespace fs = std::filesystem; // Use the filesystem namespace
+    edges_by_validity_period.clear(); // Clear any existing dynamic edges
+
+    NS_LOG_INFO("Reading dynamic edges from folder: " << foldername);
 
     try {
         // Iterate through all files in the folder

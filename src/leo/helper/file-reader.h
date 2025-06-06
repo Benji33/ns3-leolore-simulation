@@ -16,6 +16,7 @@ class FileReader {
 public:
     std::string starttime;
     std::string endtime;
+    std::chrono::duration<double> simulation_duration;
     std::uint16_t dataRateIslMpbs = 1000;
     std::uint16_t dataRateFeederMpbs = 100;
 

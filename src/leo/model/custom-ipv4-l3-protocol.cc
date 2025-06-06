@@ -100,14 +100,26 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
     Ptr<NetDevice> oif, Socket::SocketErrno& sockerr) {
         Ipv4Address dst = header.GetDestination();
         NS_LOG_DEBUG("----------> RouteOutput called for destination: " << dst << " at " << Simulator::Now().GetSeconds());
+        auto nodeData = m_node->GetObject<leo::ConstellationNodeData>();
+        if (!nodeData) {
+            NS_LOG_ERROR("ConstellationNodeData not found on node");
+            sockerr = Socket::ERROR_NOROUTETOHOST;
+            return nullptr;
+        }
+
+        std::string currentNodeId = nodeData->GetSourceId();
         leo::PacketIdTag tag;
         if (packet->PeekPacketTag(tag)) {
             NS_LOG_DEBUG("Packet Tag - AppId: " << tag.GetAppId() << " Packet Number: " << tag.GetPacketNumber());
         } else {
-            NS_LOG_WARN("No PacketIdTag found on the packet.");
+            NS_LOG_DEBUG("No PacketIdTag found on the packet.");
             if (dst == Ipv4Address("102.102.102.102")){
-                NS_LOG_WARN("Encountered failure IP 102.102.102.102");
+                NS_LOG_DEBUG("Encountered failure IP 102.102.102.102" << " on node " << currentNodeId);
+
             }
+            // if no packetTag is found, the packet was not initiated by an application
+            // E.g. expiring TTL message
+            return nullptr;
         }
 
     // Resolve the destination node ID from the IP address
@@ -118,13 +130,7 @@ Ptr<Ipv4Route> CustomRoutingProtocol::RouteOutput(Ptr<Packet> packet, const Ipv4
         return nullptr;
     }
 
-        auto nodeData = m_node->GetObject<leo::ConstellationNodeData>();
-        if (!nodeData) {
-            NS_LOG_ERROR("ConstellationNodeData not found on node");
-            sockerr = Socket::ERROR_NOROUTETOHOST;
-            return nullptr;
-        }
-        std::string currentNodeId = nodeData->GetSourceId();
+
 
     const SwitchingTable* currentTable = GetCurrentValidSwitchingTable(Simulator::Now());
     // Assume there is always a valid switching table for now
@@ -258,11 +264,10 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
     std::string currentNodeId = m_networkState.GetSourceId(nodeId);
 
     leo::PacketIdTag tag;
-    packet->PeekPacketTag(tag);
-    m_trafficManager.IncreasePacketHopCountProxy(header, tag);
-    if (tag.GetAppId() == 120 && tag.GetPacketNumber() == 125 && currentNodeId== "IRIDIUM 118") {
-        NS_LOG_DEBUG("DEBUG");
+    if (!packet->PeekPacketTag(tag)){
+        NS_LOG_WARN("No PacketIdTag found on packet in RouteInput. This shouldn't happen.");
     }
+    m_trafficManager.IncreasePacketHopCountProxy(header, tag);
     NS_LOG_DEBUG("Packet Tag - AppId: " << tag.GetAppId() << " Packet Number: " << tag.GetPacketNumber());
 
     NS_LOG_DEBUG("--> RECEIVED Packet with Tag - AppId: " << tag.GetAppId() << " Packet Number: " << tag.GetPacketNumber() << " with destination " << dst << " on Node ID: " << currentNodeId
@@ -284,9 +289,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
 
     // Resolve the destination node ID from the IP address
     std::string destNodeId = m_networkState.GetNodeIdForIp(dst);
-    if (currentNodeId =="IRIDIUM 163" && destNodeId == "632430d9e10e1"){
-        NS_LOG_DEBUG("DEBUG");
-    }
+
     NS_LOG_DEBUG("Destination node ID for " << dst << ": " << destNodeId);
     if (destNodeId == "") {
         NS_LOG_WARN("No node ID found for destination IP: " << dst);
@@ -352,7 +355,7 @@ bool CustomRoutingProtocol::RouteInput(Ptr<const Packet> packet, const Ipv4Heade
             // If the next hop is the same as the previous hop, try to use a backup route
             NS_LOG_DEBUG("Received packet on device: " << idev << ", local device for next hop would be: " << link_devices.first);
             if (link_devices.first == idev) {
-                NS_LOG_WARN("LOOP - Next hop " << nextHopNodeId << " is the same as the previous hop " << previousHopNodeId
+                NS_LOG_DEBUG("LOOP - Next hop " << nextHopNodeId << " is the same as the previous hop " << previousHopNodeId
                                         << ". Attempting to use a backup route...");
                 m_trafficManager.IncreaseLoopAvoidanceTriggeredProxy(header, tag);
                 continue; // Skip this path and try the next one

@@ -39,7 +39,7 @@ void TopologyManager::UpdateLinkDistances(const std::vector<FileReader::Edge>& d
         auto key = m_networkState.NormalizeKey(edge.source, edge.target);
 
         LinkInfo& linkInfo = m_networkState.GetLinkInfo(key.first, key.second);
-        // Ensure the link is valid
+        // Ensure the link is valid - TODO: Remove this check or only skip
         if (linkInfo.IsValid()) {
             // Update the channel's delay based on the weight (distance)
             Ptr<PointToPointNetDevice> deviceA = DynamicCast<PointToPointNetDevice>(linkInfo.deviceA);
@@ -53,12 +53,11 @@ void TopologyManager::UpdateLinkDistances(const std::vector<FileReader::Edge>& d
                     // Delay in milliseconds
                     delayStream << (delayInSeconds * 1e3) << "ms";
                     // Update the delay on the channel
-                    Time delay = Seconds(edge.weight / speedOfLight);
                     deviceA->GetChannel()->SetAttribute("Delay", StringValue(delayStream.str()));
                     deviceB->GetChannel()->SetAttribute("Delay", StringValue(delayStream.str()));
 
                     NS_LOG_DEBUG("Updated channel delay for link: " << edge.source << " -> " << edge.target
-                                    << " to " << delay.GetSeconds() << " seconds");
+                                    << " to " << delayStream.str() << " milliseconds");
                 } else {
                     NS_LOG_WARN("Channel is null for link: " << edge.source << " -> " << edge.target);
                 }

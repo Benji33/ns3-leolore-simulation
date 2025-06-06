@@ -6,6 +6,8 @@
 #include "ns3/custom-ipv4-l3-protocol.h"
 #include "ns3/constellation-node-data.h"
 #include <sstream>
+#include "ns3/drop-tail-queue.h"
+#include "ns3/config.h"
 
 namespace ns3 {
 namespace leo {
@@ -96,12 +98,16 @@ std::unordered_map<std::string, std::vector<Ipv4Address>> IpAssignmentHelper::As
 
 void IpAssignmentHelper::PrecreateAllLinks(const std::map<std::pair<std::string, std::string>, double>& allLinks, NetworkState& networkState, uint16_t dataRateIslMpbs,
     uint16_t dataRateFeederMpbs) {
+    Config::SetDefault("ns3::DropTailQueue<Packet>::MaxSize",
+            QueueSizeValue(QueueSize(QueueSizeUnit::PACKETS, 1000)));
+
     Ipv4AddressHelper ipv4;
     int maj_subnet_counter = 1;
     int min_subnet_counter = 0;
     // Set the data rate based on the link type
     std::ostringstream dataRateIslStream;
     std::ostringstream dataRateFeederStream;
+    //dataRateFeederMpbs = 1000;
     dataRateIslStream << dataRateIslMpbs << "Mbps";
     dataRateFeederStream << dataRateFeederMpbs << "Mbps";
     NS_LOG_DEBUG("Data rate for ISL: " << dataRateIslStream.str());

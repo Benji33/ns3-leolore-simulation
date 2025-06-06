@@ -30,8 +30,8 @@ void TrafficManager::WriteTrafficSummaryToCsv(const std::string& filePath) const
     }
 
     // Write the CSV column headers
-    outFile << "AppId,Source IP,Source Node,Source Town,Destination IP,Destination Node,Destination Town,Packets Sent,Packets Received,"
-            << "Min Latency (ms),Max Latency (ms),Avg Latency (ms),Avg Hop Count,Dropped Packets,Dropped Locations,Backup Path Used,Loop Avoidance Triggered\n";
+    outFile << "AppId|Source IP|Source Node|Source Town|Destination IP|Destination Node|Destination Town|Packets Sent|Packets Received|"
+            << "Min Latency (ms)|Max Latency (ms)|Avg Latency (ms)|Avg Hop Count|Dropped Packets|Dropped Locations|Dropped Times|Backup Path Used|Loop Avoidance Triggered\n";
 
     for (const auto& [key, stats] : m_trafficStats) {
         std::ostringstream oss;
@@ -87,27 +87,56 @@ void TrafficManager::WriteTrafficSummaryToCsv(const std::string& filePath) const
         uint64_t totalDroppedPackets = 0;
         std::ostringstream droppedLocationsStream;
         droppedLocationsStream << "{"; // Start the JSON-like format
-
+        bool first = true;
         for (const auto& [nodeId, count] : stats.packetsActivelyDroppedOnNode) {
             totalDroppedPackets += count;
-            droppedLocationsStream << nodeId << ":" << count << ",";
+            if (!first) {
+                droppedLocationsStream << ",";
+            }
+            droppedLocationsStream << "'" << nodeId << "':" << count;
+            first = false;
         }
         // delete trailing comma
         std::string droppedLocations = droppedLocationsStream.str();
-        if (!droppedLocations.empty()) {
-            droppedLocations.pop_back();
-        }
         if(!droppedLocations.empty()) {
             droppedLocations = droppedLocations + "}";
         }
 
+        std::ostringstream droppedTimesStream;
+        droppedTimesStream << "{"; // Start the JSON-like format
+        bool firstTime = true;
+        for (const auto& time : stats.droppedTimes) {
+            if (!firstTime) {
+                droppedTimesStream << ";";
+            }
+            droppedTimesStream << std::to_string(time);
+            firstTime = false;
+        }
+        droppedTimesStream << "}";
+        // delete trailing comma
+        std::string droppedTimes = droppedTimesStream.str();
+
+
         // Write the row data
-        outFile << appId << ',' << srcIp << ',' << srcId << ",\"" << srcTown << "\","
-                << dstIp << ',' << dstId << ",\"" << dstTown << "\","
-                << sentPackets << ',' << receivedPackets << ','
-                << minLatency << ',' << maxLatency << ',' << avgLatency << ','
-                << avgHopCount << ',' << totalDroppedPackets << ',\"' << droppedLocations << '\",'
-                << backupPathUsed << ',' << loopAvoidanceTriggered << '\n';
+        outFile << appId << '|'
+        << srcIp << '|'
+        << srcId << '|'
+        << '"' << srcTown << '"' << '|'
+        << dstIp << '|'
+        << dstId << '|'
+        << '"' << dstTown << '"' << '|'
+        << sentPackets << '|'
+        << receivedPackets << '|'
+        << minLatency << '|'
+        << maxLatency << '|'
+        << avgLatency << '|'
+        << avgHopCount << '|'
+        << totalDroppedPackets << '|'
+        << '"' << droppedLocations << '"' << '|'
+        << droppedTimes << '|'
+        << backupPathUsed << '|'
+        << loopAvoidanceTriggered << '\n';
+
     }
 
     outFile.close();
@@ -218,11 +247,33 @@ void TrafficManager::ScheduleTraffic(const std::string& outputFolder, const uint
         //DEBUG  632430d9e114d to 632430d9e1137
         /*if((traffic.src_node_id != "632430d9e114d") ||  (traffic.dst_node_id != "632430d9e1137")){
             continue;
-        }
-        if (id_counter != 120){
+        }*/
+        /*static const std::set<int> allowedFlows = {
+            146, 254, 382, 424, 1724, 1946, 2179, 2195, 2286, 2287, 2410, 2584, 2739, 2912, 2925, 3096, 3605, 3678, 3842, 3986,
+            4017, 4046, 4065, 4244, 4967, 5197, 5406, 6052, 6292, 6383, 6699, 6864, 6966, 7019, 7283, 7360, 7370, 7637, 7666,
+            7700, 7849, 8114, 8639, 9158, 9325, 9346, 9568, 9712, 9763, 9779, 9826, 9831, 9931, 10152, 10239, 10560, 10626,
+            10951, 11274, 11382, 11794, 11939, 12116, 12745, 12756, 12784, 12902, 12931, 12939, 13022, 13275, 13557, 13898,
+            13999, 14226, 14414, 14415, 14715, 14935, 15008, 15070, 15242, 15354, 15650, 15688, 15853, 16225, 16230, 16312,
+            16785, 17012, 17024, 17304, 17664, 17912, 18150, 18172, 18520, 18829, 18830, 19579, 19663, 19668, 20259, 20304,
+            20485, 20593, 20662, 20809, 21078, 21272, 21281, 21405, 21785, 21789, 21935, 22002, 23053, 23058, 23207, 23606,
+            23724, 23759, 23768, 24304, 24891, 25221, 25266, 25401, 25552, 25730, 25971, 26367, 26519, 26564, 26776, 27034
+        };
+        if (allowedFlows.find(id_counter) == allowedFlows.end()) {
             id_counter++;
             continue;
         }*/
+        /*if (id_counter != 17024) {
+            id_counter++;
+            continue;
+        }*/
+       // print traffic rate and packet size information
+        NS_LOG_DEBUG("Traffic ID: " << id_counter << ", Src: " << traffic.src_node_id
+                      << ", Dst: " << traffic.dst_node_id
+                      << ", Rate: " << traffic.rate
+                      << ", Packet Size: " << traffic.packet_size
+                      << ", Duration: " << traffic.duration
+                      << ", Src Port: " << traffic.src_port
+                      << ", Dst Port: " << traffic.dst_port);
         NS_LOG_DEBUG("Scheduling traffic from " << traffic.src_node_id << " to " << traffic.dst_node_id);
         Simulator::Schedule(Seconds(traffic.start_time), &TrafficManager::ScheduleTrafficEvent, this, traffic, id_counter);
         id_counter++;
@@ -293,7 +344,7 @@ void TrafficManager::ScheduleTrafficEvent(const Traffic& traffic, int counter) {
 
 void TrafficManager::IncreasePacketSentProxy(Ipv4Header ipv4Header, leo::PacketIdTag tag) {
     //NS_LOG_INFO("Packet sent");
-
+    //NS_LOG_INFO("Packet TTL: " << static_cast<int>(ipv4Header.GetTtl()));
     Ipv4Address srcAddress = ipv4Header.GetSource();
     Ipv4Address dstAddress = ipv4Header.GetDestination();
     NS_LOG_DEBUG("Packet sent for App " << tag.GetAppId() << " from " << srcAddress << " to " << dstAddress);
@@ -327,7 +378,7 @@ void TrafficManager::IncreasePacketReceivedProxy(Ipv4Header ipv4Header, leo::Pac
     if (it != m_trafficStats.end()) {
         m_trafficStats[key].packetsReceived++;
         // Calculate latency
-        double latency = (Simulator::Now() - tag.GetTimestamp()).GetMilliSeconds();
+        double latency = (Simulator::Now() - tag.GetTimestamp()).GetMicroSeconds() / 1000.0; // Convert to milliseconds
         TrafficStats& stats = m_trafficStats[key];
         NS_LOG_DEBUG("Packet with sent timestamp " << tag.GetTimestamp() << " received at " << Simulator::Now() << " for App " << tag.GetAppId() << " from " << srcAddress << " to " << dstAddress
                      << ", with Latency: " << latency << "ms and hop count " << m_trafficStats[key].packet_hops[tag.GetPacketNumber()]);
@@ -365,6 +416,7 @@ void TrafficManager::IncreaseActivelyDroppedPacketProxy(Ipv4Header ipv4Header, i
     auto it = m_trafficStats.find(key);
     if (it != m_trafficStats.end()) {
         m_trafficStats[key].packetsActivelyDroppedOnNode[nodeId]++;
+        m_trafficStats[key].droppedTimes.push_back(Simulator::Now().GetSeconds());
     }
 }
 void TrafficManager::IncreaseBackupPathUsedProxy(Ipv4Header ipv4Header, leo::PacketIdTag tag){

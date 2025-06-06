@@ -67,31 +67,12 @@ int main(int argc, char *argv[]) {
     LogComponentEnable("FileReader", LOG_LEVEL_INFO);
     LogComponentEnable("NetworkState", LOG_LEVEL_INFO);
     LogComponentEnable("TrafficManager", LOG_LEVEL_INFO);
+    //LogComponentEnable("DropTailQueue", LOG_LEVEL_INFO);
+    //LogComponentEnable("Ipv4L3Protocol", LOG_LEVEL_WARN);
     //LogComponentEnable("DefaultSimulatorImpl", LOG_LEVEL_DEBUG);
 
-    // Step 1: Parse in graph JSON file
-    //uint64_t simulationStart = 1742599254; // 2025-03-21T11:20:54
-    // 1742556073 , "2025-03-21 11:21:13+00:00"
-    // Generation Timestamp:
-    /*std::string input = "2025-03-21T11:20:30"; //"2025-03-21 11:21:13"
-    std::string formatted = input.substr(0, 19); // Extract "2025-03-21 11:21:13"
-    std::replace(formatted.begin(), formatted.end(), ' ', 'T'); // Replace space with 'T'
-    std::tm tm = {};
-    std::istringstream ss(formatted);//"2025-03-21T11:20:30");
-    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
-    std::time_t t = timegm(&tm);
-    auto simulationStart = std::chrono::system_clock::from_time_t(t);
-    //std::cout << "SimulationStart: " << simulationStart << std::endl;
-    std::time_t simulationStartTimeT = std::chrono::system_clock::to_time_t(simulationStart);
-    std::cout << "Simulation start time: "
-    << std::put_time(std::gmtime(&simulationStartTimeT), "%Y-%m-%d %H:%M:%S UTC")
-    << std::endl;
 
-    std::string base_path = "/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/";
-    std::string file_name = std::to_string(t);//"1742556030";
-    */
-    std::string folderName = "2025-03-21_11-28-00";
-    double simulationEndTime = 10.0;
+    std::string folderName = "2025-03-21_12-30-00";
     bool printToCsv = true;
     bool enableAnimation = false;
 
@@ -114,32 +95,41 @@ int main(int argc, char *argv[]) {
     // Step 1: Initialize FileReader and read input files that stay constant across different simulations
     ns3::leo::FileReader reader;
     reader.readGraphFromJson(base_path + file_name + "/leo_constellation.json");
+    NS_LOG_INFO("Simulation times found in file start time: " << reader.starttime << " End time: " << reader.endtime << " Duration: " << reader.simulation_duration.count() << " seconds");
+
     reader.readConstellationEvents(base_path + file_name + "/events.json", simulationStart, false);
     reader.readTrafficFromJson(base_path + file_name + "/traffic.json");
-    reader.readDynamicEdgesFromFolder(base_path + file_name + "/dynamic_edge_weights", simulationStart);
 
     std::vector<std::string> failureFiles = reader.GetFileNamesInFolder(base_path + file_name + "/failures");
 
     for (int run = 1; run <= 5; ++run) {
         NS_LOG_INFO("Starting simulation run " << run);
-        /*if (run == 2){
-            break;
-        }*/
+        //if (run != 1){
+        //    continue;
+        //}
         std::string outputFolder = "/home/benji/Documents/Uni/Master/Results/" + folderName + "/run_" + std::to_string(run);
         if (!std::filesystem::exists(outputFolder)) {
             std::filesystem::create_directories(outputFolder);
         }
-
-        int dev_iter = 0;
+        // TODO RUN 4, FAILURE SCENARIO 3 no packetIDTag found (failure ip)--> LOOP ICMP TTL exceeded
+        int experiment_counter = 0;
         // run for each failure scenario found in failure folder
         for (const auto& failureFile : failureFiles) {
-            dev_iter++;
-            if (dev_iter > 2) {
-                break;
-            }
-            // Extract the failure number from the file name
-            int failureNumber = reader.ExtractFailureNumber(failureFile);
-            NS_LOG_INFO("Running with failure scenario: " << failureNumber);
+            experiment_counter++;
+            NS_LOG_INFO("Starting experiment " << experiment_counter);
+            //if (experiment_counter != 1) {//|| (run == 4 && experiment_counter < 8)) {
+            //    continue;
+            //    }
+               // Extract the failure number from the file name
+               int failureNumber = reader.ExtractFailureNumber(failureFile);
+               if (run == 1){
+                   reader.readDynamicEdgesFromFolder(base_path + file_name + "/dynamic_edge_weights/scenario_0", simulationStart);
+               }
+               else {
+                   reader.readDynamicEdgesFromFolder(base_path + file_name + "/dynamic_edge_weights/scenario_" + std::to_string(failureNumber), simulationStart);
+               }
+
+               NS_LOG_INFO("Running with failure scenario: " << failureNumber);
 
             if(run > 1){
                 // Apply the current failure scenario
@@ -157,35 +147,15 @@ int main(int argc, char *argv[]) {
             bool useBackupPath = (run >= 4);
             bool simpleLoopAvoidance = (run >= 5);
 
-            /*
+
             //TODO: Get JSON file path through command line argument
-            reader.readGraphFromJson(base_path + file_name + "/leo_constellation.json");
-            //reader.printGraph();
 
-            //reader.readSwitchingTableFromJson("/home/benji/Documents/Uni/Master/Simulation/leo_generation/output/1742556054/switching_tables.json");
-            reader.readAllSwitchingTablesFromFolder(base_path + file_name + "/updated_switching_tables");
-            //reader.printSwitchtingTables();
-
-            // Events
-            reader.readConstellationEvents(base_path + file_name + "/events.json", simulationStart, false);
-            //reader.printConstellationEvents();
-
-            // Failures
-            reader.readConstellationEvents(base_path + file_name + "/failures.json", simulationStart, true);
-
-            // Traffic
-            reader.readTrafficFromJson(base_path + file_name + "/traffic.json");
-
-            // Dynamic Edges
-            reader.readDynamicEdgesFromFolder(base_path + file_name + "/dynamic_edge_weights", simulationStart);
-            //reader.printDynamicEdges();
-            */
             // Step 2: Create containers & nodes for ns-3 nodes
             // Map source IDs to ns-3 nodes
             // Create a network state object to manage the network state
             NS_LOG_INFO("Running simulation with failure scenario: " << failureNumber);
             NS_LOG_INFO("Simulation start time: " << std::put_time(std::gmtime(&simulationStartTimeT), "%Y-%m-%d %H:%M:%S UTC"));
-            NS_LOG_INFO("Simulation duration: " << simulationEndTime);
+            NS_LOG_INFO("Simulation duration: " << reader.simulation_duration.count());
 
             leo::NetworkState networkState;
 
@@ -339,7 +309,7 @@ int main(int argc, char *argv[]) {
             //flowMonitor = flowHelper.InstallAll();
             // Step 10: Run the simulation
             Simulator::Schedule(Seconds(1.0), &LogSimulationTime);
-            Simulator::Stop(Seconds(simulationEndTime));
+            Simulator::Stop(Seconds(reader.simulation_duration.count() + 2));
             Simulator::Run();
             // Check for lost packets
             //flowMonitor->CheckForLostPackets();
